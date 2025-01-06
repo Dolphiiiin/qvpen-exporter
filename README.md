@@ -11,7 +11,7 @@ QvPenにエクスポート機能を追加した拡張機能と、エクスポー
 2. QvPenで描画を行います
 3. QvPenのパネルにあるメニューに追加されているボタン`Export All`をインタラクトすることで、インタラクトしたパネルに属する全てのQvPenのデータをエクスポートします
     - エクスポートされたデータは、VRChatのログファイルに出力されます。
-   > **Warning**<br>
+   > **⚠️Warning**<br>
    VRChatのLoggingが有効になっていることを確認してください。
    VRChatのSettingsから`Debug` > `Logging`を有効になっていることを確認します。
 4. エクスポートしたデータをQvPen Export Formatterで変換します
