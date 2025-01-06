@@ -1,6 +1,10 @@
 ﻿# QvPen Exporter
 QvPenにエクスポート機能を追加した拡張機能と、エクスポートデータをシーンへLineRendererとしてインポートするEditor拡張機能です。
 
+# Installation
+1. vpmリポジトリを追加します
+   [com.dolphiiiin.vpm](https://dolphiiiin.github.io/vpm-repos/)
+2. VCCまたはALCOMを開き、`QvPen Exporter`(`com.dolphiiiin.qvpen-exporter`)をインストールします
 # Dependencies
 - [QvPen](https://github.com/ureishi/QvPen) 3.3.3 or later
 
