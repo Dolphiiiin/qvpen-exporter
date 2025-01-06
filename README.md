@@ -13,8 +13,7 @@ QvPenにエクスポート機能を追加した拡張機能と、エクスポー
     - エクスポートされたデータは、VRChatのログファイルに出力されます。
    > **Warning**<br>
    VRChatのLoggingが有効になっていることを確認してください。
-   > - `Debug` > `Logging`
-   > - ![img.png](Documentation/img.png)
+   VRChatのSettingsから`Debug` > `Logging`を有効になっていることを確認します。
 4. エクスポートしたデータをQvPen Export Formatterで変換します
    - [QvPen Export Formatter](https://dolphiiiin.github.io/qvpen-export-formatter/)
    1.  ページを開いてVRChatのログファイルをペーストするか、ファイルを参照して選択します
