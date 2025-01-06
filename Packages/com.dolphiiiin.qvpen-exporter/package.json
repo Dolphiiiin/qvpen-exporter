@@ -1,16 +1,13 @@
 ﻿{
-  "name": "com.dolphiiiin.qvpen-exporter",
-  "displayName": "QvPen Exporter",
-  "description": "An extension of QvPen with export function and a script to load exported data.",
-  "version": "1.0.0",
-  "gitDependencies": {},
-  "vpmDependencies": {
-      "net.ureishi.qvpen": "3.3.3"    
+  "name":"com.dolphiiiin.qvpen-exporter",
+  "displayName":"QvPen Exporter",
+  "description":"An extension of QvPen with export function and a script to load exported data.",
+  "version":"1.0.0",
+  "gitDependencies":{},
+  "vpmDependencies":{
+    "net.ureishi.qvpen":"3.3.3"
   },
-  "author": {
-    "name": "Dolphiiiin",
-    "email": "dolphiiiin@users.noreply.github.com"
-  },
-  "legacyFolders": {},
-  "legacyFiles": {}
+  "author":{"name":"Dolphiiiin","email":"dolphiiiin@users.noreply.github.com"},
+  "legacyFolders":{},
+  "legacyFiles":{}
 }
