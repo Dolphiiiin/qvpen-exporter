@@ -54,7 +54,7 @@ namespace QvPenExporter.Editor
             {
                 jsonFile = EditorGUILayout.ObjectField("JSONファイル", jsonFile, typeof(TextAsset), false) as TextAsset;
                 lineRendererPrefab =
-                    EditorGUILayout.ObjectField("ラインレンダラープレハブ", lineRendererPrefab, typeof(GameObject), false)
+                    EditorGUILayout.ObjectField("LineRenderer Template", lineRendererPrefab, typeof(GameObject), false)
                         as GameObject;
             }
 
