@@ -31,7 +31,6 @@ jobs:
       contents: write
     env:
       packagePath: Packages/${{ vars.PACKAGE_NAME }}
-      version: 1.0.0
     if: needs.config.outputs.config_package == 'true'
     steps:
 
@@ -53,7 +52,6 @@ jobs:
           echo "zipFile=${{ vars.PACKAGE_NAME }}-${{ steps.version.outputs.value }}".zip >> $GITHUB_ENV
           echo "unityPackage=${{ vars.PACKAGE_NAME }}-${{ steps.version.outputs.value }}.unitypackage" >> $GITHUB_ENV
           echo "version=${{ env.version.outputs.value }}" >> $GITHUB_ENV
-#          echo "version=${{ env.version }}" >> $GITHUB_ENV
 
       # Zip the Package for release
       - name: Create Package Zip
