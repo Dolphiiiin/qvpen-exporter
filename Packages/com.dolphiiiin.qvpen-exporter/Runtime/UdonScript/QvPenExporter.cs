@@ -10,7 +10,7 @@ public class QvPenExporter : UdonSharpBehaviour
 
     private LineRenderer[] lineRenderers;
 
-    public override void Interact()
+    public void Export()
     {
         // Ownerを取得
         if (!Networking.IsOwner(Networking.LocalPlayer, gameObject))
@@ -24,7 +24,6 @@ public class QvPenExporter : UdonSharpBehaviour
             Debug.LogError("QvPen_PenManager not found.");
             return;
         }
-
         
         
         Debug.Log($"[QVPEN_EXPORTER] [START_EXPORT]");

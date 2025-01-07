@@ -192,24 +192,50 @@ namespace QvPenExporter.Editor
                 foreach (var group in groupedData)
                 {
                     GameObject groupObject = new GameObject($"Group_{group.Key}");
-                    groupObject.transform.parent = parent.transform;
-                    Undo.RegisterCreatedObjectUndo(groupObject, "グループオブジェクトの作成");
+                    List<Vector3> groupPositions = new List<Vector3>();
 
                     foreach (LineData lineData in group.Value)
                     {
                         // プレハブからインスタンスを生成
-                        GameObject lineObj =
-                            PrefabUtility.InstantiatePrefab(lineRendererPrefab, groupObject.transform) as GameObject;
+                        GameObject lineObj = PrefabUtility.InstantiatePrefab(lineRendererPrefab) as GameObject;
                         Undo.RegisterCreatedObjectUndo(lineObj, "ラインレンダラーの作成");
-
-                        lineObj.transform.localPosition = Vector3.zero;
-                        lineObj.name = $"LineRenderer_{lineData.color.value[0]}";
 
                         LineRenderer lineRenderer = lineObj.GetComponent<LineRenderer>();
                         if (lineRenderer == null)
                         {
                             throw new Exception("プレハブにLineRendererコンポーネントが含まれていません！");
                         }
+
+                        // 位置データの設定
+                        int pointCount = lineData.positions.Count / 3;
+                        Vector3[] positions = new Vector3[pointCount];
+                        Vector3 center = Vector3.zero;
+
+                        for (int i = 0; i < pointCount; i++)
+                        {
+                            int index = i * 3;
+                            positions[i] = new Vector3(
+                                lineData.positions[index],
+                                lineData.positions[index + 1],
+                                lineData.positions[index + 2]
+                            );
+                            center += positions[i];
+                        }
+
+                        center /= pointCount;
+
+                        for (int i = 0; i < pointCount; i++)
+                        {
+                            positions[i] -= center;
+                        }
+
+                        lineRenderer.positionCount = pointCount;
+                        lineRenderer.SetPositions(positions);
+
+                        // lineObjのTransformを設定
+                        lineObj.transform.position = center;
+                        lineObj.transform.parent = groupObject.transform;
+                        lineObj.name = $"LineRenderer_{lineData.color.value[0]}";
 
                         // 色の設定
                         if (lineData.color.type == "gradient")
@@ -239,32 +265,45 @@ namespace QvPenExporter.Editor
                             }
                         }
 
-                        // 位置データの設定
-                        int pointCount = lineData.positions.Count / 3;
-                        lineRenderer.positionCount = pointCount;
-                        Vector3[] positions = new Vector3[pointCount];
-
-                        for (int i = 0; i < pointCount; i++)
-                        {
-                            int index = i * 3;
-                            positions[i] = new Vector3(
-                                lineData.positions[index],
-                                lineData.positions[index + 1],
-                                lineData.positions[index + 2]
-                            );
-                        }
-
-                        lineRenderer.SetPositions(positions);
+                        groupPositions.Add(center);
                     }
+
+                    // グループの中心を計算して設定
+                    Vector3 groupCenter = Vector3.zero;
+                    foreach (var pos in groupPositions)
+                    {
+                        groupCenter += pos;
+                    }
+                    groupCenter /= groupPositions.Count;
+
+                    foreach (Transform child in groupObject.transform)
+                    {
+                        child.position -= groupCenter;
+                    }
+                    groupObject.transform.position = groupCenter;
+                    groupObject.transform.parent = parent.transform;
+                    Undo.RegisterCreatedObjectUndo(groupObject, "グループオブジェクトの作成");
                 }
 
-                EditorUtility.DisplayDialog("成功",
-                    $"ラインレンダラーを{data.exportedData.Count}個作成しました！", "OK");
+                // 親オブジェクトの中心を計算して設定
+                Vector3 parentCenter = Vector3.zero;
+                foreach (Transform child in parent.transform)
+                {
+                    parentCenter += child.position;
+                }
+                parentCenter /= parent.transform.childCount;
+
+                foreach (Transform child in parent.transform)
+                {
+                    child.position -= parentCenter;
+                }
+                parent.transform.position = parentCenter;
+
+                EditorUtility.DisplayDialog("成功", $"ラインレンダラーを{data.exportedData.Count}個作成しました！", "OK");
             }
             catch (Exception e)
             {
-                EditorUtility.DisplayDialog("エラー",
-                    $"ラインレンダラーの作成に失敗しました: {e.Message}", "OK");
+                EditorUtility.DisplayDialog("エラー", $"ラインレンダラーの作成に失敗しました: {e.Message}", "OK");
                 Debug.LogException(e);
             }
         }
