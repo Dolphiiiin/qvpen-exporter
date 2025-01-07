@@ -379,7 +379,6 @@ MonoBehaviour:
   - {fileID: 6081883053399429683}
   - {fileID: 6081883052494570657}
   - {fileID: 6081883051734603023}
-  output: {fileID: 0}
 --- !u!114 &7453282694522508973
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -851,11 +850,11 @@ PrefabInstance:
       objectReference: {fileID: 6833922009239397812, guid: 2674f268860583949b53b63df24489ea, type: 3}
     - target: {fileID: 7259507218960721137, guid: 2674f268860583949b53b63df24489ea, type: 3}
       propertyPath: m_LocalPosition.x
-      value: 2
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 7259507218960721137, guid: 2674f268860583949b53b63df24489ea, type: 3}
       propertyPath: m_LocalPosition.y
-      value: 0.8
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 7259507218960721137, guid: 2674f268860583949b53b63df24489ea, type: 3}
       propertyPath: m_LocalPosition.z
@@ -891,7 +890,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 7259507218960721138, guid: 2674f268860583949b53b63df24489ea, type: 3}
       propertyPath: m_Name
-      value: QvPen Variant
+      value: QvPen with Exporter
       objectReference: {fileID: 0}
     - target: {fileID: 7345309993335295296, guid: 2674f268860583949b53b63df24489ea, type: 3}
       propertyPath: serializationData.Prefab
