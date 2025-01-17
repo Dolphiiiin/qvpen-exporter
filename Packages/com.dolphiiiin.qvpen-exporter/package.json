@@ -5,7 +5,7 @@
   "version":"1.1.0",
   "gitDependencies":{},
   "vpmDependencies":{
-    "net.ureishi.qvpen":"3.3.3"
+    "net.ureishi.qvpen":">=3.3.3"
   },
   "author":{"name":"Dolphiiiin","email":"dolphiiiin@users.noreply.github.com"},
   "legacyFolders":{},

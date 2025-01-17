@@ -1,4 +1,6 @@
-﻿using System.Text;
+﻿using System;
+using System.Text;
+using QvPen.UdonScript;
 using UdonSharp;
 using UnityEngine;
 using VRC.SDKBase;
@@ -6,7 +8,7 @@ using VRC.SDKBase;
 public class QvPenExporter : UdonSharpBehaviour
 {
     [SerializeField]
-    private GameObject[] inkPools;
+    private QvPen_LateSync[] inkPools;
 
     private LineRenderer[] lineRenderers;
 
@@ -28,7 +30,7 @@ public class QvPenExporter : UdonSharpBehaviour
         
         Debug.Log($"[QVPEN_EXPORTER] [START_EXPORT]");
         // inkPoolsの中以下の階層のオブジェクト内にある、LineRendererを持つオブジェクトを全て取得
-        foreach (GameObject inkPool in inkPools)
+        foreach (QvPen_LateSync inkPool in inkPools)
         {
             lineRenderers = inkPool.GetComponentsInChildren<LineRenderer>();
 
