@@ -92,4 +92,4 @@ public class QvPenExporter : UdonSharpBehaviour
         int b = Mathf.RoundToInt(color.b * 255f);
         return r.ToString("X2") + g.ToString("X2") + b.ToString("X2");
     }
-    }
+}
