@@ -3,6 +3,7 @@ using UnityEngine;
 using UnityEditor;
 using System;
 using System.Collections.Generic;
+using System.IO;
 
 namespace QvPenExporter.Editor
 {
@@ -13,6 +14,7 @@ namespace QvPenExporter.Editor
         {
             public ColorData color;
             public List<float> positions;
+            public float width; // 直接float型として定義
         }
 
         [Serializable]
@@ -32,13 +34,45 @@ namespace QvPenExporter.Editor
         private TextAsset jsonFile;
         [SerializeField]
         private GameObject lineRendererPrefab;
+        [SerializeField]
+        private Material baseMaterial; // ベースとなるInk_PCマテリアル
         private GameObject parentObject;
         private Vector2 scrollPosition;
+        private string materialsFolderPath = "Assets/QvPenImporter/Materials";
+        private Dictionary<float, Material> widthMaterialCache = new Dictionary<float, Material>();
 
         [MenuItem("Tools/QvPenImporter")]
         public static void ShowWindow()
         {
             GetWindow<QvPenImporter>("QvPenImporter");
+        }
+
+        private void OnEnable()
+        {
+            // ベースマテリアルの自動検索
+            if (baseMaterial == null)
+            {
+                // プレハブからベースマテリアルを取得
+                if (lineRendererPrefab != null)
+                {
+                    LineRenderer lr = lineRendererPrefab.GetComponent<LineRenderer>();
+                    if (lr != null && lr.sharedMaterial != null)
+                    {
+                        baseMaterial = lr.sharedMaterial;
+                    }
+                }
+
+                // "QvPen" または "Ink_PC" という名前のマテリアルを検索
+                if (baseMaterial == null)
+                {
+                    string[] guids = AssetDatabase.FindAssets("t:Material Ink_PC");
+                    if (guids.Length > 0)
+                    {
+                        string path = AssetDatabase.GUIDToAssetPath(guids[0]);
+                        baseMaterial = AssetDatabase.LoadAssetAtPath<Material>(path);
+                    }
+                }
+            }
         }
 
         private void OnGUI()
@@ -56,6 +90,18 @@ namespace QvPenExporter.Editor
                 lineRendererPrefab =
                     EditorGUILayout.ObjectField("LineRenderer Template", lineRendererPrefab, typeof(GameObject), false)
                         as GameObject;
+                
+                // ベースマテリアル設定
+                baseMaterial = EditorGUILayout.ObjectField("ベースマテリアル (Ink_PC)", baseMaterial, typeof(Material), false) as Material;
+                
+                if (baseMaterial == null)
+                {
+                    EditorGUILayout.HelpBox("QvPenで使用されているInk_PCマテリアル、または互換性のあるマテリアルを指定してください。", MessageType.Warning);
+                }
+                else if (!baseMaterial.shader.name.Contains("QvPen") && !baseMaterial.shader.name.Contains("rounded_trail"))
+                {
+                    EditorGUILayout.HelpBox("選択されたマテリアルはQvPen用のシェーダーを使用していない可能性があります。", MessageType.Warning);
+                }
             }
 
             EditorGUILayout.Space(5);
@@ -96,7 +142,12 @@ namespace QvPenExporter.Editor
 
                         foreach (var group in groupedData)
                         {
-                            EditorGUILayout.LabelField($"色: #{group.Key} - ライン数: {group.Value.Count}");
+                            // グループごとの情報ヘッダー
+                            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                            
+                            EditorGUILayout.LabelField($"色: #{group.Key} - ライン数: {group.Value.Count}", EditorStyles.boldLabel);
+                            
+                            // 色のプレビュー
                             EditorGUILayout.BeginHorizontal();
                             var rect = EditorGUILayout.GetControlRect(GUILayout.Width(100), GUILayout.Height(16));
                             if (group.Value[0].color.type == "gradient")
@@ -114,18 +165,45 @@ namespace QvPenExporter.Editor
                                 }
                             }
                             EditorGUILayout.EndHorizontal();
+                            
+                            // 線の太さ情報の表示
+                            EditorGUILayout.BeginHorizontal();
+                            EditorGUILayout.LabelField("線の太さ:", GUILayout.Width(100));
+                            
+                            float width = group.Value[0].width;
+                            if (width > 0)
+                            {
+                                // 太さの数値
+                                EditorGUILayout.LabelField($"{width:F4}");
+                                
+                                // 太さの視覚的表現
+                                float displayWidth = Mathf.Clamp(width * 500, 1, 20);
+                                var thicknessRect = EditorGUILayout.GetControlRect(GUILayout.Width(100), GUILayout.Height(displayWidth));
+                                Color previewColor;
+                                ColorUtility.TryParseHtmlString($"#{group.Key}", out previewColor);
+                                EditorGUI.DrawRect(thicknessRect, previewColor);
+                            }
+                            else
+                            {
+                                EditorGUILayout.LabelField("情報なし（デフォルト値が使用されます）");
+                            }
+                            EditorGUILayout.EndHorizontal();
+                            
+                            EditorGUILayout.EndVertical();
+                            EditorGUILayout.Space(5);
                         }
                     }
                 }
-                catch (Exception)
+                catch (Exception e)
                 {
-                    EditorGUILayout.HelpBox("無効なJSON形式です", MessageType.Error);
+                    EditorGUILayout.HelpBox($"無効なJSON形式です: {e.Message}", MessageType.Error);
+                    Debug.LogException(e);
                 }
             }
 
             EditorGUILayout.Space(10);
 
-            using (new EditorGUI.DisabledGroupScope(jsonFile == null || lineRendererPrefab == null))
+            using (new EditorGUI.DisabledGroupScope(jsonFile == null || lineRendererPrefab == null || baseMaterial == null))
             {
                 if (GUILayout.Button("インポート", GUILayout.Height(30)))
                 {
@@ -135,12 +213,59 @@ namespace QvPenExporter.Editor
 
             EditorGUILayout.Space(5);
 
-            if (jsonFile == null || lineRendererPrefab == null)
+            if (jsonFile == null || lineRendererPrefab == null || baseMaterial == null)
             {
-                EditorGUILayout.HelpBox("JSONファイルとラインレンダラープレハブの両方を選択してください。", MessageType.Info);
+                EditorGUILayout.HelpBox("JSONファイル、ラインレンダラープレハブ、およびベースマテリアルの3つすべてを選択してください。", MessageType.Info);
             }
 
             EditorGUILayout.EndScrollView();
+        }
+
+        // 指定した線幅に対応するマテリアルを取得または生成
+        private Material GetMaterialForWidth(float width)
+        {
+            // 既に生成済みのマテリアルがあればそれを返す
+            if (widthMaterialCache.ContainsKey(width))
+            {
+                return widthMaterialCache[width];
+            }
+            
+            // マテリアル保存用フォルダの作成
+            if (!Directory.Exists(materialsFolderPath))
+            {
+                Directory.CreateDirectory(materialsFolderPath);
+                AssetDatabase.Refresh();
+            }
+            
+            // 新しいマテリアルの名前
+            string materialName = $"QvPen_Width_{width:F4}";
+            string materialPath = $"{materialsFolderPath}/{materialName}.mat";
+            
+            // 既存のマテリアルを検索
+            Material material = AssetDatabase.LoadAssetAtPath<Material>(materialPath);
+            
+            if (material == null)
+            {
+                // 新しいマテリアルを作成
+                material = new Material(baseMaterial);
+                material.SetFloat("_Width", width);
+                
+                // マテリアルを保存
+                AssetDatabase.CreateAsset(material, materialPath);
+                AssetDatabase.SaveAssets();
+            }
+            else
+            {
+                // 既存のマテリアルの設定を更新
+                material.SetFloat("_Width", width);
+                EditorUtility.SetDirty(material);
+                AssetDatabase.SaveAssets();
+            }
+            
+            // キャッシュに追加
+            widthMaterialCache[width] = material;
+            
+            return material;
         }
 
         private void DrawGradient(Rect rect, List<string> colorValues)
@@ -165,6 +290,9 @@ namespace QvPenExporter.Editor
         {
             try
             {
+                // マテリアルキャッシュをクリア
+                widthMaterialCache.Clear();
+                
                 // JSONデータの解析
                 LineRendererData data = JsonUtility.FromJson<LineRendererData>(jsonFile.text);
                 var groupedData = new Dictionary<string, List<LineData>>();
@@ -187,6 +315,8 @@ namespace QvPenExporter.Editor
                     parent = new GameObject($"Imported QvPen ({data.timestamp})");
                     Undo.RegisterCreatedObjectUndo(parent, "親オブジェクトの作成");
                 }
+
+                int linesImported = 0;
 
                 // 各グループに対してLineRendererを作成
                 foreach (var group in groupedData)
@@ -231,11 +361,28 @@ namespace QvPenExporter.Editor
 
                         lineRenderer.positionCount = pointCount;
                         lineRenderer.SetPositions(positions);
+                        
+                        // 線の太さ情報の設定
+                        float width = lineData.width;
+                        if (width <= 0)
+                        {
+                            width = 0.005f; // デフォルト値
+                            Debug.LogWarning("線の太さが0以下のため、デフォルト値を使用します: " + lineObj.name);
+                        }
+                        
+                        // 該当する太さのマテリアルを取得または生成して適用
+                        Material widthMaterial = GetMaterialForWidth(width);
+                        lineRenderer.material = widthMaterial;
+                        
+                        // LineRendererの表示幅は常に0に設定（QvPenシェーダーの要件）
+                        lineRenderer.widthMultiplier = 0f;
+                        
+                        // オブジェクト名に太さ情報を追加
+                        lineObj.name = $"LineRenderer_{lineData.color.value[0]}_width{width:F4}";
 
                         // lineObjのTransformを設定
                         lineObj.transform.position = center;
                         lineObj.transform.parent = groupObject.transform;
-                        lineObj.name = $"LineRenderer_{lineData.color.value[0]}";
 
                         // 色の設定
                         if (lineData.color.type == "gradient")
@@ -266,6 +413,7 @@ namespace QvPenExporter.Editor
                         }
 
                         groupPositions.Add(center);
+                        linesImported++;
                     }
 
                     // グループの中心を計算して設定
@@ -299,7 +447,11 @@ namespace QvPenExporter.Editor
                 }
                 parent.transform.position = parentCenter;
 
-                EditorUtility.DisplayDialog("成功", $"ラインレンダラーを{data.exportedData.Count}個作成しました！", "OK");
+                // マテリアルのアセットを保存
+                AssetDatabase.SaveAssets();
+                AssetDatabase.Refresh();
+
+                EditorUtility.DisplayDialog("成功", $"ラインレンダラーを{linesImported}個作成しました！\n\n線の太さに応じたマテリアルが {materialsFolderPath} に作成されました。", "OK");
             }
             catch (Exception e)
             {
