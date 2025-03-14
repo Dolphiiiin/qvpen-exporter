@@ -4,6 +4,7 @@ using UnityEditor;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 namespace QvPenExporter.Editor
 {
@@ -122,75 +123,160 @@ namespace QvPenExporter.Editor
                 try
                 {
                     var data = JsonUtility.FromJson<LineRendererData>(jsonFile.text);
-                    var groupedData = new Dictionary<string, List<LineData>>();
-
+                    
+                    // 色ごとにグループ化したディクショナリ
+                    var groupedByColor = new Dictionary<string, List<LineData>>();
+                    
+                    // 色と太さでグループ化したディクショナリ
+                    var groupedByColorAndWidth = new Dictionary<string, Dictionary<float, List<LineData>>>();
+                    
                     // データを色ごとにグループ化
                     foreach (var line in data.exportedData)
                     {
                         var colorKey = line.color.value[0];
-                        if (!groupedData.ContainsKey(colorKey))
+                        var width = line.width;
+                        
+                        // 色でのグループ化
+                        if (!groupedByColor.ContainsKey(colorKey))
                         {
-                            groupedData[colorKey] = new List<LineData>();
+                            groupedByColor[colorKey] = new List<LineData>();
+                            groupedByColorAndWidth[colorKey] = new Dictionary<float, List<LineData>>();
                         }
-                        groupedData[colorKey].Add(line);
+                        groupedByColor[colorKey].Add(line);
+                        
+                        // 色と太さでのグループ化
+                        if (!groupedByColorAndWidth[colorKey].ContainsKey(width))
+                        {
+                            groupedByColorAndWidth[colorKey][width] = new List<LineData>();
+                        }
+                        groupedByColorAndWidth[colorKey][width].Add(line);
                     }
 
                     using (new EditorGUILayout.VerticalScope(EditorStyles.helpBox))
                     {
                         EditorGUILayout.LabelField("プレビュー", EditorStyles.boldLabel);
                         EditorGUILayout.LabelField($"タイムスタンプ: {data.timestamp}");
+                        EditorGUILayout.LabelField($"合計ライン数: {data.exportedData.Count}", EditorStyles.boldLabel);
+                        EditorGUILayout.Space(10);
 
-                        foreach (var group in groupedData)
+                        // 色ごとの表示
+                        EditorGUILayout.LabelField("【色ごとのグループ】", EditorStyles.boldLabel);
+                        foreach (var colorGroup in groupedByColor)
                         {
-                            // グループごとの情報ヘッダー
+                            // 色ごとの情報ヘッダー
                             EditorGUILayout.BeginVertical(EditorStyles.helpBox);
                             
-                            EditorGUILayout.LabelField($"色: #{group.Key} - ライン数: {group.Value.Count}", EditorStyles.boldLabel);
+                            EditorGUILayout.LabelField($"色: #{colorGroup.Key} - ライン数: {colorGroup.Value.Count}", EditorStyles.boldLabel);
                             
                             // 色のプレビュー
                             EditorGUILayout.BeginHorizontal();
                             var rect = EditorGUILayout.GetControlRect(GUILayout.Width(100), GUILayout.Height(16));
-                            if (group.Value[0].color.type == "gradient")
+                            if (colorGroup.Value[0].color.type == "gradient")
                             {
-                                DrawGradient(rect, group.Value[0].color.value);
-                                EditorGUILayout.LabelField(string.Join(", ", group.Value[0].color.value));
+                                DrawGradient(rect, colorGroup.Value[0].color.value);
+                                EditorGUILayout.LabelField(string.Join(", ", colorGroup.Value[0].color.value));
                             }
                             else
                             {
                                 Color color;
-                                if (ColorUtility.TryParseHtmlString($"#{group.Key}", out color))
+                                if (ColorUtility.TryParseHtmlString($"#{colorGroup.Key}", out color))
                                 {
                                     EditorGUI.DrawRect(rect, color);
-                                    EditorGUILayout.LabelField($"#{group.Key}");
+                                    EditorGUILayout.LabelField($"#{colorGroup.Key}");
                                 }
                             }
                             EditorGUILayout.EndHorizontal();
                             
-                            // 線の太さ情報の表示
-                            EditorGUILayout.BeginHorizontal();
-                            EditorGUILayout.LabelField("線の太さ:", GUILayout.Width(100));
+                            // 線の太さ情報の表示（グループ内のすべての太さを表示）
+                            EditorGUILayout.LabelField("線の太さ:", EditorStyles.boldLabel);
                             
-                            float width = group.Value[0].width;
-                            if (width > 0)
+                            // グループ内のユニークな線の太さを収集
+                            HashSet<float> uniqueWidths = new HashSet<float>();
+                            foreach (var lineData in colorGroup.Value)
                             {
-                                // 太さの数値
-                                EditorGUILayout.LabelField($"{width:F4}");
+                                uniqueWidths.Add(lineData.width);
+                            }
+                            
+                            // 各太さを表示
+                            foreach (float width in uniqueWidths)
+                            {
+                                EditorGUILayout.BeginHorizontal();
                                 
-                                // 太さの視覚的表現
-                                float displayWidth = Mathf.Clamp(width * 500, 1, 20);
-                                var thicknessRect = EditorGUILayout.GetControlRect(GUILayout.Width(100), GUILayout.Height(displayWidth));
-                                Color previewColor;
-                                ColorUtility.TryParseHtmlString($"#{group.Key}", out previewColor);
-                                EditorGUI.DrawRect(thicknessRect, previewColor);
+                                if (width > 0)
+                                {
+                                    // この太さのライン数をカウント
+                                    int lineCount = colorGroup.Value.Count(l => l.width == width);
+                                    
+                                    // 太さの数値と数
+                                    EditorGUILayout.LabelField($"太さ: {width:F4} ({lineCount}本)", GUILayout.Width(150));
+                                    
+                                    // 太さの視覚的表現
+                                    float displayWidth = Mathf.Clamp(width * 500, 1, 20);
+                                    var thicknessRect = EditorGUILayout.GetControlRect(GUILayout.Width(100), GUILayout.Height(displayWidth));
+                                    Color previewColor;
+                                    ColorUtility.TryParseHtmlString($"#{colorGroup.Key}", out previewColor);
+                                    EditorGUI.DrawRect(thicknessRect, previewColor);
+                                }
+                                else
+                                {
+                                    EditorGUILayout.LabelField("情報なし（デフォルト値が使用されます）");
+                                }
+                                
+                                EditorGUILayout.EndHorizontal();
                             }
-                            else
-                            {
-                                EditorGUILayout.LabelField("情報なし（デフォルト値が使用されます）");
-                            }
-                            EditorGUILayout.EndHorizontal();
                             
                             EditorGUILayout.EndVertical();
                             EditorGUILayout.Space(5);
+                        }
+                        
+                        // 色と太さの組み合わせごとの表示
+                        EditorGUILayout.Space(20);
+                        EditorGUILayout.LabelField("【色と太さの組み合わせごとのグループ】", EditorStyles.boldLabel);
+                        
+                        // 色と太さの組み合わせ単位での表示
+                        foreach (var colorKey in groupedByColorAndWidth.Keys)
+                        {
+                            foreach (var widthKey in groupedByColorAndWidth[colorKey].Keys)
+                            {
+                                var lines = groupedByColorAndWidth[colorKey][widthKey];
+                                
+                                EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                                
+                                // タイトル
+                                EditorGUILayout.LabelField($"色: #{colorKey} 太さ: {widthKey:F4} - ライン数: {lines.Count}", EditorStyles.boldLabel);
+                                
+                                // 色のプレビュー
+                                EditorGUILayout.BeginHorizontal();
+                                var rect = EditorGUILayout.GetControlRect(GUILayout.Width(100), GUILayout.Height(16));
+                                if (lines[0].color.type == "gradient")
+                                {
+                                    DrawGradient(rect, lines[0].color.value);
+                                    EditorGUILayout.LabelField(string.Join(", ", lines[0].color.value));
+                                }
+                                else
+                                {
+                                    Color color;
+                                    if (ColorUtility.TryParseHtmlString($"#{colorKey}", out color))
+                                    {
+                                        EditorGUI.DrawRect(rect, color);
+                                        EditorGUILayout.LabelField($"#{colorKey}");
+                                    }
+                                }
+                                EditorGUILayout.EndHorizontal();
+                                
+                                // 太さの視覚的表現
+                                EditorGUILayout.BeginHorizontal();
+                                EditorGUILayout.LabelField($"太さ表示:", GUILayout.Width(70));
+                                float displayWidth = Mathf.Clamp(widthKey * 500, 1, 20);
+                                var thicknessRect = EditorGUILayout.GetControlRect(GUILayout.Width(100), GUILayout.Height(displayWidth));
+                                Color previewColor;
+                                ColorUtility.TryParseHtmlString($"#{colorKey}", out previewColor);
+                                EditorGUI.DrawRect(thicknessRect, previewColor);
+                                EditorGUILayout.EndHorizontal();
+                                
+                                EditorGUILayout.EndVertical();
+                                EditorGUILayout.Space(5);
+                            }
                         }
                     }
                 }
@@ -295,17 +381,25 @@ namespace QvPenExporter.Editor
                 
                 // JSONデータの解析
                 LineRendererData data = JsonUtility.FromJson<LineRendererData>(jsonFile.text);
-                var groupedData = new Dictionary<string, List<LineData>>();
-
-                // データを色ごとにグループ化
+                
+                // 色と太さの組み合わせでグループ化するための辞書
+                var groupedByColorAndWidth = new Dictionary<string, List<LineData>>();
+                
+                // データを色と太さでグループ化
                 foreach (var line in data.exportedData)
                 {
                     var colorKey = line.color.value[0];
-                    if (!groupedData.ContainsKey(colorKey))
+                    var width = line.width;
+                    if (width <= 0) width = 0.005f; // デフォルト値を使用
+                    
+                    // 色と太さを組み合わせたキーを作成
+                    var groupKey = $"{colorKey}_width{width:F4}";
+                    
+                    if (!groupedByColorAndWidth.ContainsKey(groupKey))
                     {
-                        groupedData[colorKey] = new List<LineData>();
+                        groupedByColorAndWidth[groupKey] = new List<LineData>();
                     }
-                    groupedData[colorKey].Add(line);
+                    groupedByColorAndWidth[groupKey].Add(line);
                 }
 
                 // 親オブジェクトの作成または取得
@@ -318,10 +412,16 @@ namespace QvPenExporter.Editor
 
                 int linesImported = 0;
 
-                // 各グループに対してLineRendererを作成
-                foreach (var group in groupedData)
+                // 色と太さの各組み合わせに対してグループを作成
+                foreach (var group in groupedByColorAndWidth)
                 {
-                    GameObject groupObject = new GameObject($"Group_{group.Key}");
+                    // グループキーから色と太さを抽出
+                    string[] parts = group.Key.Split('_');
+                    string colorHex = parts[0];
+                    string widthStr = parts[1];
+                    
+                    // グループオブジェクトを作成
+                    GameObject groupObject = new GameObject($"Group_{colorHex}_{widthStr}");
                     List<Vector3> groupPositions = new List<Vector3>();
 
                     foreach (LineData lineData in group.Value)
@@ -362,7 +462,7 @@ namespace QvPenExporter.Editor
                         lineRenderer.positionCount = pointCount;
                         lineRenderer.SetPositions(positions);
                         
-                        // 線の太さ情報の設定
+                        // 線の太さ情報の設定（lineDataから直接取得）
                         float width = lineData.width;
                         if (width <= 0)
                         {
@@ -377,8 +477,8 @@ namespace QvPenExporter.Editor
                         // LineRendererの表示幅は常に0に設定（QvPenシェーダーの要件）
                         lineRenderer.widthMultiplier = 0f;
                         
-                        // オブジェクト名に太さ情報を追加
-                        lineObj.name = $"LineRenderer_{lineData.color.value[0]}_width{width:F4}";
+                        // オブジェクト名に太さ情報を追加（グループの情報を利用）
+                        lineObj.name = $"LineRenderer_{colorHex}_{widthStr}";
 
                         // lineObjのTransformを設定
                         lineObj.transform.position = center;
