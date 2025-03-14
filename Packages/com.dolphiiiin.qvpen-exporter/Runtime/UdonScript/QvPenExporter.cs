@@ -10,6 +10,10 @@ public class QvPenExporter : UdonSharpBehaviour
     [SerializeField]
     private QvPen_LateSync[] inkPools;
 
+    // ペンの太さのデフォルト値（LineRenderer.widthMultiplierが0の場合に使用）
+    [SerializeField, Tooltip("ペンの太さが0の場合に使用するデフォルト値")]
+    private float defaultPenWidth = 0.005f;
+
     private LineRenderer[] lineRenderers;
 
     public void Export()
@@ -32,6 +36,20 @@ public class QvPenExporter : UdonSharpBehaviour
         // inkPoolsの中以下の階層のオブジェクト内にある、LineRendererを持つオブジェクトを全て取得
         foreach (QvPen_LateSync inkPool in inkPools)
         {
+            // このLateSyncのペン参照から現在の太さを取得
+            QvPen_Pen currentPen = inkPool.pen;
+            float currentPenWidth = defaultPenWidth; // デフォルト値を初期値に設定
+            
+            if (currentPen != null)
+            {
+                // ペンが存在する場合、PenManagerから太さを取得
+                QvPen_PenManager penManager = currentPen.gameObject.GetComponentInParent<QvPen_PenManager>();
+                if (penManager != null)
+                {
+                    currentPenWidth = penManager.inkWidth;
+                }
+            }
+            
             lineRenderers = inkPool.GetComponentsInChildren<LineRenderer>();
 
             // LineRendererが見つかった場合
@@ -64,6 +82,23 @@ public class QvPenExporter : UdonSharpBehaviour
                         colorJson = "\"color\": {\"type\": \"const\", \"value\": [\"" + ColorToHex(color) + "\"]}";
                     }
                     
+                    // ペンの太さ情報を取得
+                    float width = lineRenderer.widthMultiplier;
+                    
+                    // widthが0の場合はデフォルト値を使用
+                    if (width <= 0.0001f)
+                    {
+                        width = currentPenWidth;
+                        
+                        // それでも0の場合はデフォルト値を使用
+                        if (width <= 0.0001f)
+                        {
+                            width = defaultPenWidth;
+                        }
+                    }
+                    
+                    string widthJson = "\"width\": " + width.ToString();
+                    
                     // positionsを文字列に変換
                     StringBuilder positionsString = new StringBuilder();
                     foreach (Vector3 position in positions)
@@ -72,7 +107,7 @@ public class QvPenExporter : UdonSharpBehaviour
                     }
                     
                     // JSON文字列を生成
-                    string jsonString = "{" + colorJson + ",\"positions\":[" + positionsString.ToString().TrimEnd(',') + "]}";
+                    string jsonString = "{" + colorJson + "," + widthJson + ",\"positions\":[" + positionsString.ToString().TrimEnd(',') + "]}";
                     
                     // JSON文字列をBase64エンコード
                     string base64String = System.Convert.ToBase64String(Encoding.UTF8.GetBytes(jsonString));
