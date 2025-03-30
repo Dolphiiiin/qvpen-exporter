@@ -37,22 +37,12 @@ namespace QvPenExporter.UdonScript
     
         [SerializeField]
         private Text statusText;
-    
-        [SerializeField]
-        private GameObject loadingIndicator;
 
         private float loadStartTime;
         private bool isLoading = false;
         private const float LOAD_TIMEOUT_SECONDS = 30.0f;
 
         private bool isInitialized = false;
-
-        [Header("Material Settings")]
-        [SerializeField]
-        private Material[] widthMaterials;
-        private const int MAX_WIDTH_MATERIALS = 10;
-
-        private VRCUrl lastLoadedUrl;
 
         [UdonSynced]
         private VRCUrl syncedUrl;
@@ -62,6 +52,8 @@ namespace QvPenExporter.UdonScript
 
         [UdonSynced]
         private bool isImporting = false; // インポート中フラグ
+
+        private VRCUrl lastLoadedUrl;
 
         private void Start()
         {
@@ -87,20 +79,6 @@ namespace QvPenExporter.UdonScript
                 Debug.LogError("[QvPenLoader] URL InputField not set");
                 UpdateStatusUI("エラー: URL入力フィールドが見つかりません", Color.red);
                 return;
-            }
-
-            if (loadingIndicator != null)
-            {
-                loadingIndicator.SetActive(false);
-            }
-
-            widthMaterials = new Material[MAX_WIDTH_MATERIALS];
-            if (defaultMaterial != null)
-            {
-                for (int i = 0; i < MAX_WIDTH_MATERIALS; i++)
-                {
-                    widthMaterials[i] = defaultMaterial;
-                }
             }
 
             UpdateStatusUI("準備完了", Color.white);
@@ -211,19 +189,11 @@ namespace QvPenExporter.UdonScript
         {
             loadStartTime = Time.time;
             isLoading = true;
-            if (loadingIndicator != null)
-            {
-                loadingIndicator.SetActive(true);
-            }
         }
 
         private void StopLoading()
         {
             isLoading = false;
-            if (loadingIndicator != null)
-            {
-                loadingIndicator.SetActive(false);
-            }
         }
 
         public override void OnStringLoadSuccess(IVRCStringDownload result)
@@ -324,100 +294,127 @@ namespace QvPenExporter.UdonScript
             UpdateStatusUI("インポート成功！", Color.green);
         }
 
+        /// <summary>
+        /// JSONデータから描画データを解析して線を生成する
+        /// </summary>
         private void DrawImportedData(string jsonData)
         {
             if (!isInitialized || string.IsNullOrEmpty(jsonData))
             {
                 return;
             }
-        
+
+            // JSONデータをVRChatのDataToken形式に変換
             DataToken dataToken;
-            bool success = VRCJson.TryDeserializeFromJson(jsonData, out dataToken);
-            if (!success || dataToken.TokenType != TokenType.DataDictionary)
+            if (!VRCJson.TryDeserializeFromJson(jsonData, out dataToken) || 
+                dataToken.TokenType != TokenType.DataDictionary)
             {
-                Debug.LogError("[QvPenLoader] Failed to parse JSON data");
+                Debug.LogError("[QvPenLoader] JSONデータの解析に失敗しました");
                 return;
             }
-        
+
             DataDictionary jsonDataDict = dataToken.DataDictionary;
-        
-            if (!jsonDataDict.TryGetValue("exportedData", TokenType.DataList, out DataToken exportedDataToken))
+            DataToken exportedDataToken;
+            
+            // 描画データの配列を取得
+            if (!jsonDataDict.TryGetValue("exportedData", TokenType.DataList, out exportedDataToken))
             {
-                Debug.LogError("[QvPenLoader] JSON data does not contain exportedData array");
+                Debug.LogError("[QvPenLoader] exportedDataが見つかりません");
                 return;
             }
-        
+
+            // 各描画データを処理
             DataList exportedData = exportedDataToken.DataList;
-            int exportedCount = exportedData.Count;
-        
-            for (int i = 0; i < exportedCount; i++)
+            for (int i = 0; i < exportedData.Count; i++)
             {
-                if (!exportedData.TryGetValue(i, TokenType.DataDictionary, out DataToken drawingDataToken))
+                if (exportedData.TryGetValue(i, TokenType.DataDictionary, out DataToken drawingDataToken))
                 {
-                    Debug.LogError("[QvPenLoader] Invalid drawing data at index " + i);
-                    continue;
+                    CreateLineFromData(drawingDataToken.DataDictionary);
                 }
-            
-                DataDictionary drawingData = drawingDataToken.DataDictionary;
-            
-                CreateLineFromData(drawingData);
+                else
+                {
+                    Debug.LogWarning($"[QvPenLoader] 描画データ {i} の形式が不正です");
+                }
             }
         }
 
+        /// <summary>
+        /// 描画データから線を生成する
+        /// </summary>
         private void CreateLineFromData(DataDictionary drawingData)
         {
+            // カラー情報の取得と検証
             if (!drawingData.TryGetValue("color", TokenType.DataDictionary, out DataToken colorToken))
             {
-                Debug.LogError("[QvPenLoader] Drawing data does not contain color information");
+                Debug.LogError("[QvPenLoader] カラー情報が見つかりません");
                 return;
             }
-        
+
             DataDictionary colorData = colorToken.DataDictionary;
-        
-            if (!colorData.TryGetValue("type", TokenType.String, out DataToken colorTypeToken))
+            if (!colorData.TryGetValue("type", TokenType.String, out DataToken colorTypeToken) ||
+                !colorData.TryGetValue("value", TokenType.DataList, out DataToken colorValuesToken))
             {
-                Debug.LogError("[QvPenLoader] Color data does not contain type information");
+                Debug.LogError("[QvPenLoader] カラーデータの形式が不正です");
                 return;
             }
-        
-            string colorType = colorTypeToken.String;
-            bool isGradient = colorType == "gradient";
-        
-            if (!colorData.TryGetValue("value", TokenType.DataList, out DataToken colorValuesToken))
-            {
-                Debug.LogError("[QvPenLoader] Color data does not contain value array");
-                return;
-            }
-        
+
+            // グラデーションの判定とカラー配列の作成
+            bool isGradient = colorTypeToken.String == "gradient";
             DataList colorValues = colorValuesToken.DataList;
-            int colorCount = colorValues.Count;
-        
-            if (colorCount == 0)
+            if (colorValues.Count == 0)
             {
-                Debug.LogError("[QvPenLoader] No colors found in color data");
+                Debug.LogError("[QvPenLoader] カラー値が存在しません");
                 return;
             }
-        
-            Color[] colors = new Color[colorCount];
-            for (int i = 0; i < colorCount; i++)
+
+            Color[] colors = ParseColors(colorValues);
+            if (colors == null) return;
+
+            // 線の太さの取得
+            float lineWidth = GetLineWidth(drawingData);
+
+            // 位置データの取得と検証
+            if (!drawingData.TryGetValue("positions", TokenType.DataList, out DataToken positionsToken))
+            {
+                Debug.LogError("[QvPenLoader] 位置データが見つかりません");
+                return;
+            }
+
+            Vector3[] positions = ParsePositions(positionsToken.DataList);
+            if (positions == null) return;
+
+            // 線の生成
+            CreateLine(positions, colors, isGradient, lineWidth);
+        }
+
+        /// <summary>
+        /// カラー配列をパースする
+        /// </summary>
+        private Color[] ParseColors(DataList colorValues)
+        {
+            Color[] colors = new Color[colorValues.Count];
+            for (int i = 0; i < colorValues.Count; i++)
             {
                 if (!colorValues.TryGetValue(i, TokenType.String, out DataToken colorHexToken))
                 {
-                    Debug.LogError("[QvPenLoader] Invalid color value at index " + i);
-                    return;
+                    Debug.LogError($"[QvPenLoader] カラー値 {i} の形式が不正です");
+                    return null;
                 }
-            
-                string colorHex = colorHexToken.String;
-                Color parsedColor = Color.white;
-                if (!TryParseHexColor(colorHex, out parsedColor))
+
+                if (!TryParseHexColor(colorHexToken.String, out colors[i]))
                 {
-                    Debug.LogError("[QvPenLoader] Failed to parse color: " + colorHex);
-                    return;
+                    Debug.LogError($"[QvPenLoader] カラー値のパースに失敗: {colorHexToken.String}");
+                    return null;
                 }
-            
-                colors[i] = parsedColor;
             }
-        
+            return colors;
+        }
+
+        /// <summary>
+        /// 線の太さを取得する
+        /// </summary>
+        private float GetLineWidth(DataDictionary drawingData)
+        {
             float lineWidth = defaultWidth;
             if (drawingData.TryGetValue("width", TokenType.Float, out DataToken widthToken))
             {
@@ -427,82 +424,66 @@ namespace QvPenExporter.UdonScript
             {
                 lineWidth = (float)widthDoubleToken.Double;
             }
-            else
-            {
-                Debug.Log($"[QvPenLoader] Width not defined in JSON, using default width: {defaultWidth}");
-            }
-            
+
             if (lineWidth <= 0)
             {
+                Debug.LogWarning($"[QvPenLoader] 無効な線の太さ ({lineWidth})、デフォルト値を使用: {defaultWidth}");
                 lineWidth = defaultWidth;
-                Debug.LogWarning($"[QvPenLoader] Invalid line width ({lineWidth}), using default: {defaultWidth}");
             }
 
-            if (!drawingData.TryGetValue("positions", TokenType.DataList, out DataToken positionsToken))
-            {
-                Debug.LogError("[QvPenLoader] Drawing data does not contain positions array");
-                return;
-            }
-        
-            DataList positionsList = positionsToken.DataList;
+            return lineWidth;
+        }
+
+        /// <summary>
+        /// 位置データ配列をパースする
+        /// </summary>
+        private Vector3[] ParsePositions(DataList positionsList)
+        {
             int posCount = positionsList.Count;
-        
             if (posCount % 3 != 0 || posCount < 6)
             {
-                Debug.LogError("[QvPenLoader] Invalid position data: not a multiple of 3 or too few points");
-                return;
+                Debug.LogError("[QvPenLoader] 位置データが不正: 3の倍数でないか、点が少なすぎます");
+                return null;
             }
-        
+
             int vertexCount = posCount / 3;
             Vector3[] positions = new Vector3[vertexCount];
-        
+
             for (int i = 0; i < vertexCount; i++)
             {
-                float x = 0f, y = 0f, z = 0f;
-            
-                if (!positionsList.TryGetValue(i * 3, TokenType.Float, out DataToken xToken) &&
-                    !positionsList.TryGetValue(i * 3, TokenType.Double, out xToken))
+                Vector3 pos;
+                if (!TryGetPosition(positionsList, i * 3, out pos))
                 {
-                    Debug.LogError("[QvPenLoader] Invalid X position at index " + (i * 3));
-                    return;
+                    return null;
                 }
-            
-                if (!positionsList.TryGetValue(i * 3 + 1, TokenType.Float, out DataToken yToken) &&
-                    !positionsList.TryGetValue(i * 3 + 1, TokenType.Double, out yToken))
-                {
-                    Debug.LogError("[QvPenLoader] Invalid Y position at index " + (i * 3 + 1));
-                    return;
-                }
-            
-                if (!positionsList.TryGetValue(i * 3 + 2, TokenType.Float, out DataToken zToken) &&
-                    !positionsList.TryGetValue(i * 3 + 2, TokenType.Double, out zToken))
-                {
-                    Debug.LogError("[QvPenLoader] Invalid Z position at index " + (i * 3 + 2));
-                    return;
-                }
-            
-                if (xToken.TokenType == TokenType.Float) {
-                    x = xToken.Float;
-                } else {
-                    x = (float)xToken.Double;
-                }
-            
-                if (yToken.TokenType == TokenType.Float) {
-                    y = yToken.Float;
-                } else {
-                    y = (float)yToken.Double;
-                }
-            
-                if (zToken.TokenType == TokenType.Float) {
-                    z = zToken.Float;
-                } else {
-                    z = (float)zToken.Double;
-                }
-            
-                positions[i] = new Vector3(x, y, z);
+                positions[i] = pos;
             }
-        
-            CreateLine(positions, colors, isGradient, lineWidth);
+
+            return positions;
+        }
+
+        /// <summary>
+        /// 位置データを取得する
+        /// </summary>
+        private bool TryGetPosition(DataList positionsList, int startIndex, out Vector3 position)
+        {
+            position = Vector3.zero;
+            float[] values = new float[3];
+
+            for (int i = 0; i < 3; i++)
+            {
+                if (!positionsList.TryGetValue(startIndex + i, TokenType.Float, out DataToken token) &&
+                    !positionsList.TryGetValue(startIndex + i, TokenType.Double, out token))
+                {
+                    Debug.LogError($"[QvPenLoader] 位置データの取得に失敗: インデックス {startIndex + i}");
+                    return false;
+                }
+
+                values[i] = token.TokenType == TokenType.Float ? token.Float : (float)token.Double;
+            }
+
+            position = new Vector3(values[0], values[1], values[2]);
+            return true;
         }
 
         private bool TryParseHexColor(string hex, out Color color)
@@ -559,83 +540,146 @@ namespace QvPenExporter.UdonScript
             return true;
         }
 
+        /// <summary>
+        /// 線を生成する
+        /// </summary>
         private void CreateLine(Vector3[] positions, Color[] colors, bool isGradient, float lineWidth)
         {
-            if (positions.Length < 2)
+            if (!ValidateLineParameters(positions, colors)) return;
+
+            // InkParentのワールド位置を考慮して位置を調整
+            Vector3[] adjustedPositions = new Vector3[positions.Length];
+            for (int i = 0; i < positions.Length; i++)
             {
-                Debug.LogWarning("[QvPenLoader] Not enough points to create line");
+                // InkParentのワールド位置を相殺
+                adjustedPositions[i] = positions[i] - inkParent.position;
+            }
+
+            GameObject lineObj = CreateLineObject(lineWidth);
+            if (lineObj == null) return;
+
+            LineRenderer lineRenderer = lineObj.GetComponent<LineRenderer>();
+            if (lineRenderer == null)
+            {
+                Debug.LogError("[QvPenLoader] LineRendererコンポーネントが見つかりません");
+                Destroy(lineObj);
                 return;
+            }
+
+            // 線の基本設定（調整済みの位置を使用）
+            SetupLineRenderer(lineRenderer, adjustedPositions, lineWidth);
+
+            // カラー設定
+            ApplyLineColors(lineRenderer, colors, isGradient);
+
+            lineObj.layer = lineLayer;
+            Debug.Log($"[QvPenLoader] {positions.Length}点の線を生成しました（太さ: {lineWidth:F3}）");
+        }
+
+        /// <summary>
+        /// 線のパラメータを検証する
+        /// </summary>
+        private bool ValidateLineParameters(Vector3[] positions, Color[] colors)
+        {
+            if (positions == null || positions.Length < 2)
+            {
+                Debug.LogWarning("[QvPenLoader] 点が少なすぎます");
+                return false;
+            }
+
+            if (colors == null || colors.Length == 0)
+            {
+                Debug.LogWarning("[QvPenLoader] カラーデータが不正です");
+                return false;
             }
 
             if (lineRendererPrefab == null)
             {
-                Debug.LogError("[QvPenLoader] LineRenderer prefab is not set");
-                return;
+                Debug.LogError("[QvPenLoader] LineRenderer prefabが設定されていません");
+                return false;
             }
 
+            return true;
+        }
+
+        /// <summary>
+        /// 線オブジェクトを生成する
+        /// </summary>
+        private GameObject CreateLineObject(float lineWidth)
+        {
             GameObject lineObj = Instantiate(lineRendererPrefab);
             if (lineObj == null)
             {
-                Debug.LogError("[QvPenLoader] Failed to instantiate LineRenderer prefab");
+                Debug.LogError("[QvPenLoader] LineRenderer prefabの生成に失敗しました");
                 UpdateStatusUI("エラー: LineRendererの生成に失敗しました", Color.red);
-                return;
+                return null;
             }
+
             lineObj.transform.SetParent(inkParent, false);
             lineObj.name = $"Line_Width{lineWidth:F3}";
-        
-            LineRenderer lineRenderer = lineObj.GetComponent<LineRenderer>();
-            if (lineRenderer != null)
+            return lineObj;
+        }
+
+        /// <summary>
+        /// LineRendererの基本設定を行う
+        /// </summary>
+        private void SetupLineRenderer(LineRenderer lineRenderer, Vector3[] positions, float lineWidth)
+        {
+            lineRenderer.positionCount = positions.Length;
+            lineRenderer.SetPositions(positions);
+
+            // 線の太さ設定
+            AnimationCurve curve = new AnimationCurve();
+            curve.AddKey(0f, 0f);
+            curve.AddKey(1f, 0f);
+            lineRenderer.widthCurve = curve;
+            lineRenderer.widthMultiplier = 0f;
+
+            if (defaultMaterial != null)
             {
-                lineRenderer.positionCount = positions.Length;
-                lineRenderer.SetPositions(positions);
-            
-                AnimationCurve curve = new AnimationCurve();
-                curve.AddKey(0f, 0f);
-                curve.AddKey(1f, 0f);
-                lineRenderer.widthCurve = curve;
-                lineRenderer.widthMultiplier = 0f;
-            
-                if (defaultMaterial != null)
-                {
-                    lineRenderer.material = defaultMaterial;
-                    lineRenderer.material.SetFloat("_Width", lineWidth);
-                }
-                else
-                {
-                    Debug.LogError($"[QvPenLoader] No material available for width {lineWidth}");
-                    return;
-                }
-            
-                if (isGradient && colors.Length > 1)
-                {
-                    Gradient gradient = new Gradient();
-                    GradientColorKey[] colorKeys = new GradientColorKey[colors.Length];
-                    GradientAlphaKey[] alphaKeys = new GradientAlphaKey[colors.Length];
-                
-                    for (int i = 0; i < colors.Length; i++)
-                    {
-                        colorKeys[i] = new GradientColorKey(colors[i], i / (float)(colors.Length - 1));
-                        alphaKeys[i] = new GradientAlphaKey(1.0f, i / (float)(colors.Length - 1));
-                    }
-                
-                    gradient.SetKeys(colorKeys, alphaKeys);
-                    lineRenderer.colorGradient = gradient;
-                }
-                else if (colors.Length > 0)
-                {
-                    lineRenderer.startColor = colors[0];
-                    lineRenderer.endColor = colors[0];
-                }
-            
-                lineObj.layer = lineLayer;
-                
-                Debug.Log($"[QvPenLoader] Created line with {positions.Length} points, width {lineWidth:F3}");
+                lineRenderer.material = defaultMaterial;
+                lineRenderer.material.SetFloat("_Width", lineWidth);
             }
             else
             {
-                Debug.LogError("[QvPenLoader] LineRenderer component not found on prefab");
-                Destroy(lineObj);
+                Debug.LogError($"[QvPenLoader] マテリアルが設定されていません（太さ: {lineWidth}）");
             }
+        }
+
+        /// <summary>
+        /// 線の色を設定する
+        /// </summary>
+        private void ApplyLineColors(LineRenderer lineRenderer, Color[] colors, bool isGradient)
+        {
+            if (isGradient && colors.Length > 1)
+            {
+                ApplyGradientColors(lineRenderer, colors);
+            }
+            else if (colors.Length > 0)
+            {
+                lineRenderer.startColor = colors[0];
+                lineRenderer.endColor = colors[0];
+            }
+        }
+
+        /// <summary>
+        /// グラデーションカラーを設定する
+        /// </summary>
+        private void ApplyGradientColors(LineRenderer lineRenderer, Color[] colors)
+        {
+            Gradient gradient = new Gradient();
+            GradientColorKey[] colorKeys = new GradientColorKey[colors.Length];
+            GradientAlphaKey[] alphaKeys = new GradientAlphaKey[colors.Length];
+
+            for (int i = 0; i < colors.Length; i++)
+            {
+                float time = i / (float)(colors.Length - 1);
+                colorKeys[i] = new GradientColorKey(colors[i], time);
+                alphaKeys[i] = new GradientAlphaKey(1.0f, time);
+            }
+
+            gradient.SetKeys(colorKeys, alphaKeys);
+            lineRenderer.colorGradient = gradient;
         }
 
         public void ClearAllImportedData()
