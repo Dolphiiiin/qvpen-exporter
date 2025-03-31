@@ -69,7 +69,18 @@ namespace QvPenExporter
                         Color color = lineRenderer.startColor;
                         // colorのjsonを生成
                         string colorJson = "";
-                        if (gradient != null)
+                        
+                        // グラデーションが実際に使用されているか確認
+                        bool isActuallyGradient = false;
+                        if (gradient != null && gradient.colorKeys.Length > 1)
+                        {
+                            // 最初と最後のカラーが異なる場合はグラデーション
+                            Color firstColor = gradient.colorKeys[0].color;
+                            Color lastColor = gradient.colorKeys[gradient.colorKeys.Length - 1].color;
+                            isActuallyGradient = !ColorEquals(firstColor, lastColor);
+                        }
+
+                        if (isActuallyGradient)
                         {
                             colorJson = "\"color\": {\"type\": \"gradient\", \"value\": [";
                             for (int i = 0; i < gradient.colorKeys.Length; i++)
@@ -127,6 +138,14 @@ namespace QvPenExporter
             int g = Mathf.RoundToInt(color.g * 255f);
             int b = Mathf.RoundToInt(color.b * 255f);
             return r.ToString("X2") + g.ToString("X2") + b.ToString("X2");
+        }
+
+        private bool ColorEquals(Color color1, Color color2)
+        {
+            return Mathf.Approximately(color1.r, color2.r) &&
+                   Mathf.Approximately(color1.g, color2.g) &&
+                   Mathf.Approximately(color1.b, color2.b) &&
+                   Mathf.Approximately(color1.a, color2.a);
         }
     }
 }
