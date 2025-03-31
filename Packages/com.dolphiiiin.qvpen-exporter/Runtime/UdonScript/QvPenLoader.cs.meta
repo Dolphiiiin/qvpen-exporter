@@ -1,0 +1,17 @@
+fileFormatVersion: 2
+guid: 51a58c543222f8348b1f5b06fa97ffa2
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences:
+  - _udonSharpBackingUdonBehaviour: {instanceID: 0}
+  - inkParent: {instanceID: 0}
+  - lineRendererPrefab: {fileID: 6608821230536864047, guid: d17015005ef275644803a08440a921d3, type: 3}
+  - defaultMaterial: {fileID: 2100000, guid: 6b64136272204b8458c4bd55be9f97cb, type: 2}
+  - urlInputField: {instanceID: 0}
+  - statusText: {instanceID: 0}
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
