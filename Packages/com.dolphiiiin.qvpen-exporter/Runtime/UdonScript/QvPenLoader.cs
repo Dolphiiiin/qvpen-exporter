@@ -48,10 +48,12 @@ namespace QvPenExporter.UdonScript
         private VRCUrl syncedUrl;
 
         [UdonSynced]
-        private bool hasLoadedData = false;
+        private bool isImporting = false; // インポート中フラグ
 
         [UdonSynced]
-        private bool isImporting = false; // インポート中フラグ
+        private bool hasImportedInWorld = false; // ワールドでインポートされたことがあるかどうか
+
+        private bool initialLoadExecuted = false; // 初期化時のロードが実行済みかどうか
 
         private VRCUrl lastLoadedUrl;
 
@@ -81,9 +83,17 @@ namespace QvPenExporter.UdonScript
                 return;
             }
 
-            UpdateStatusUI("準備完了", Color.white);
+            // 初期状態の設定
             isInitialized = true;
+            UpdateStatusUI("準備完了", Color.white);
             Debug.Log("[QvPenLoader] Initialized successfully");
+
+            // 既にワールドでインポートされている場合は初期ロードを実行
+            if (hasImportedInWorld && !initialLoadExecuted && syncedUrl != null)
+            {
+                initialLoadExecuted = true;
+                StartImport(syncedUrl);
+            }
         }
 
         private void UpdateStatusUI(string message, Color color)
@@ -116,23 +126,34 @@ namespace QvPenExporter.UdonScript
                 return;
             }
 
-            LoadFromUrl(importUrl);
+            // オーナー権限を取得
+            if (!Networking.IsOwner(Networking.LocalPlayer, gameObject))
+            {
+                Networking.SetOwner(Networking.LocalPlayer, gameObject);
+            }
+
+            // URLを同期用変数に設定
+            syncedUrl = importUrl;
+            lastLoadedUrl = importUrl;
+            hasImportedInWorld = true;
+            RequestSerialization();
+
+            // 全プレイヤーに対してインポート開始を通知
+            SendCustomNetworkEvent(VRC.Udon.Common.Interfaces.NetworkEventTarget.All, nameof(NetworkImport));
         }
 
-        public void ReloadLastUrl()
+        public void NetworkImport()
         {
-            if (lastLoadedUrl != null && !string.IsNullOrEmpty(lastLoadedUrl.Get()))
+            if (syncedUrl == null || string.IsNullOrEmpty(syncedUrl.Get()))
             {
-                LoadFromUrl(lastLoadedUrl);
+                Debug.LogError("[QvPenLoader] Synced URL is empty");
+                return;
             }
-            else
-            {
-                Debug.LogWarning("[QvPenLoader] No URL to reload");
-                UpdateStatusUI("再ロードするURLがありません", Color.yellow);
-            }
+
+            StartImport(syncedUrl);
         }
 
-        public void LoadFromUrl(VRCUrl url)
+        private void StartImport(VRCUrl url)
         {
             if (!isInitialized || url == null || string.IsNullOrEmpty(url.Get()))
             {
@@ -155,24 +176,52 @@ namespace QvPenExporter.UdonScript
                 return;
             }
 
+            // 既存のデータをクリア
+            ClearExistingData();
+
+            // ローディング状態の設定
+            StartLoading();
+
+            // オーナーがロード開始時は他のプレイヤーに通知
+            if (Networking.IsOwner(Networking.LocalPlayer, gameObject))
+            {
+                isImporting = true;
+                RequestSerialization();
+            }
+
+            Debug.Log($"[QvPenLoader] Starting load from URL: {url.Get()}");
+            VRCStringDownloader.LoadUrl(url, (IUdonEventReceiver)this);
+        }
+
+        public void ReloadLastUrl()
+        {
+            if (lastLoadedUrl != null && !string.IsNullOrEmpty(lastLoadedUrl.Get()))
+            {
+                LoadFromUrl(lastLoadedUrl);
+            }
+            else
+            {
+                Debug.LogWarning("[QvPenLoader] No URL to reload");
+                UpdateStatusUI("再ロードするURLがありません", Color.yellow);
+            }
+        }
+
+        public void LoadFromUrl(VRCUrl url)
+        {
             // オーナー権限を取得
             if (!Networking.IsOwner(Networking.LocalPlayer, gameObject))
             {
                 Networking.SetOwner(Networking.LocalPlayer, gameObject);
             }
 
-            // 既存のデータをクリア
-            ClearExistingData();
-
-            lastLoadedUrl = url;
+            // URLを同期用変数に設定
             syncedUrl = url;
-            hasLoadedData = false;
-            isImporting = true;
+            lastLoadedUrl = url;
+            hasImportedInWorld = true;
             RequestSerialization();
 
-            StartLoading();
-            Debug.Log($"[QvPenLoader] Starting load from URL: {url.Get()}");
-            VRCStringDownloader.LoadUrl(url, (IUdonEventReceiver)this);
+            // 全プレイヤーに対してインポート開始を通知
+            SendCustomNetworkEvent(VRC.Udon.Common.Interfaces.NetworkEventTarget.All, nameof(NetworkImport));
         }
 
         // データクリアの内部メソッド
@@ -206,17 +255,27 @@ namespace QvPenExporter.UdonScript
             {
                 ProcessImportData(jsonData);
                 UpdateStatusUI("インポート完了！", Color.green);
+
+                // 同期フラグを更新
+                isImporting = false;
+                if (Networking.IsOwner(Networking.LocalPlayer, gameObject))
+                {
+                    RequestSerialization();
+                }
             }
             else
             {
                 Debug.LogError("[QvPenLoader] Received empty data");
                 UpdateStatusUI("エラー: データが空です", Color.red);
+                
+                // エラー時はインポート状態をリセット
+                isImporting = false;
+                if (Networking.IsOwner(Networking.LocalPlayer, gameObject))
+                {
+                    RequestSerialization();
+                }
             }
 
-            // ロード完了を同期
-            hasLoadedData = true;
-            isImporting = false;
-            RequestSerialization();
             StopLoading();
         }
 
@@ -229,29 +288,32 @@ namespace QvPenExporter.UdonScript
 
             // エラー時は他のプレイヤーがインポートできるようにフラグを解除
             isImporting = false;
-            RequestSerialization();
+            if (Networking.IsOwner(Networking.LocalPlayer, gameObject))
+            {
+                RequestSerialization();
+            }
             StopLoading();
         }
 
         public override void OnDeserialization()
         {
-            if (hasLoadedData && syncedUrl != null && !string.IsNullOrEmpty(syncedUrl.Get()))
+            // 初期化済みで、かつワールドでインポートされたことがあり、まだ初期ロードを実行していない場合のみロード
+            if (isInitialized && hasImportedInWorld && !initialLoadExecuted && syncedUrl != null)
             {
-                if (inkParent.childCount == 0)
-                {
-                    Debug.Log("[QvPenLoader] Loading synced data...");
-                    lastLoadedUrl = syncedUrl;
-                    LoadFromUrl(syncedUrl);
-                }
+                initialLoadExecuted = true;
+                StartImport(syncedUrl);
             }
         }
 
         public override void OnPlayerJoined(VRCPlayerApi player)
         {
-            if (player.isLocal && hasLoadedData && syncedUrl != null && !string.IsNullOrEmpty(syncedUrl.Get()))
+            if (!player.isLocal) return;
+
+            // 初期化済みで、かつワールドでインポートされたことがあり、まだ初期ロードを実行していない場合のみロード
+            if (isInitialized && hasImportedInWorld && !initialLoadExecuted && syncedUrl != null)
             {
-                Debug.Log("[QvPenLoader] Loading existing data as new player...");
-                LoadFromUrl(syncedUrl);
+                initialLoadExecuted = true;
+                StartImport(syncedUrl);
             }
         }
 
@@ -684,13 +746,6 @@ namespace QvPenExporter.UdonScript
 
         public void ClearAllImportedData()
         {
-            if (isImporting && !Networking.IsOwner(Networking.LocalPlayer, gameObject))
-            {
-                Debug.LogWarning("[QvPenLoader] Cannot clear while another player is importing");
-                UpdateStatusUI("インポート中は削除できません", Color.yellow);
-                return;
-            }
-
             if (!Networking.IsOwner(Networking.LocalPlayer, gameObject))
             {
                 Networking.SetOwner(Networking.LocalPlayer, gameObject);
@@ -702,9 +757,9 @@ namespace QvPenExporter.UdonScript
             }
 
             syncedUrl = null;
-            hasLoadedData = false;
-            isImporting = false;
+            hasImportedInWorld = false;
             lastLoadedUrl = null;
+            initialLoadExecuted = false;
             RequestSerialization();
 
             UpdateStatusUI("すべてのデータを削除しました", Color.white);
