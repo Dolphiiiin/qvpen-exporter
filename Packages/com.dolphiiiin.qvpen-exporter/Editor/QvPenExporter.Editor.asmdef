@@ -1,6 +1,6 @@
 {
-    "name": "com.dolphiiiin.qvpen-exporter.editor",
-    "rootNamespace": "com.dolphiiiin.qvpen-exporter.editor",
+    "name": "QvPenExporter.Editor",
+    "rootNamespace": "QvPenExporter",
     "references": [],
     "includePlatforms": [],
     "excludePlatforms": [],

@@ -1,10 +1,10 @@
-using System.Text;
+﻿using System.Text;
 using QvPen.UdonScript;
 using UdonSharp;
 using UnityEngine;
 using VRC.SDKBase;
 
-namespace QvPenExporter.UdonScript
+namespace QvPenExporter
 {
     public class QvPenExporter : UdonSharpBehaviour
     {

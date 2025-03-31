@@ -9,7 +9,7 @@ using VRC.Udon;
 using VRC.Udon.Common.Interfaces;
 using System.Collections;
 
-namespace QvPenExporter.UdonScript
+namespace QvPenExporter
 {
     [UdonBehaviourSyncMode(BehaviourSyncMode.Manual)]
     public class QvPenLoader : UdonSharpBehaviour
