@@ -1,17 +1,18 @@
 ﻿using UdonSharp;
 using UnityEngine;
-using VRC.SDKBase;
-using VRC.Udon;
 
-public class LocalInteractToggle : UdonSharpBehaviour
+namespace QvPenExporter
 {
-    [SerializeField]
-    private GameObject toggleTarget;
-    
-    public override void Interact()
+    public class LocalInteractToggle : UdonSharpBehaviour
     {
-        // ターゲットのアクティブ状態を反転
-        toggleTarget.SetActive(!toggleTarget.activeSelf);
+        [SerializeField]
+        private GameObject toggleTarget;
+    
+        public override void Interact()
+        {
+            // ターゲットのアクティブ状態を反転
+            toggleTarget.SetActive(!toggleTarget.activeSelf);
+        }
     }
 }
 
