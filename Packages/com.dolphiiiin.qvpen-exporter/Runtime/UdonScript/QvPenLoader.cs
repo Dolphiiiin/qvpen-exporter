@@ -24,6 +24,19 @@ namespace QvPenExporter
         [SerializeField]
         private Material defaultMaterial;
 
+        [Header("Pickup Settings")]
+        [SerializeField, Tooltip("ペンをピックアップ可能なオブジェクトとして生成するか")]
+        private Toggle pickupToggle;
+
+        [SerializeField, Tooltip("ピックアップオブジェクトを生成する位置")]
+        private Transform pickupSpawnPoint;
+        
+        [SerializeField, Tooltip("ピックアップオブジェクトのプレハブ")]
+        private GameObject pickupContainerPrefab;
+        
+        // 現在の描画データを保持するコンテナオブジェクト
+        private GameObject currentPickupContainer;
+
         [Header("Default Parameters")]
         [SerializeField, Tooltip("JSONでwidthが定義されていない場合のデフォルトの太さ")]
         private float defaultWidth = 0.005f;
@@ -385,25 +398,131 @@ namespace QvPenExporter
                 return;
             }
 
-            // 各描画データを処理
             DataList exportedData = exportedDataToken.DataList;
+            int exportedCount = exportedData.Count;
+            
+            if (exportedCount == 0)
+            {
+                Debug.LogWarning("No drawing data found in JSON");
+                return;
+            }
+
+            // ピックアップモードかどうかを判定
+            bool usePickup = pickupToggle != null && pickupToggle.isOn && pickupSpawnPoint != null;
+
+            // 既存のピックアップコンテナがあれば削除
+            if (currentPickupContainer != null)
+            {
+                Destroy(currentPickupContainer);
+                currentPickupContainer = null;
+            }
+
+            // ピックアップモードの場合は、コンテナを作成
+            if (usePickup)
+            {
+                if (pickupContainerPrefab == null)
+                {
+                    Debug.LogError("[QvPenLoader] PickupContainer prefabが設定されていません");
+                    UpdateStatusUI("エラー: PickupContainer prefabが見つかりません", Color.red);
+                    return;
+                }
+
+                // ピックアップコンテナを生成
+                currentPickupContainer = Instantiate(pickupContainerPrefab, pickupSpawnPoint.position, pickupSpawnPoint.rotation);
+                if (currentPickupContainer == null)
+                {
+                    Debug.LogError("[QvPenLoader] PickupContainer prefabの生成に失敗しました");
+                    UpdateStatusUI("エラー: PickupContainerの生成に失敗しました", Color.red);
+                    return;
+                }
+
+                // コンテナの名前を設定
+                currentPickupContainer.name = "QvPenImport_PickupContainer";
+
+                // コンテナにコライダーとリジッドボディが設定されているか確認
+                if (currentPickupContainer.GetComponent<Collider>() == null)
+                {
+                    Debug.LogWarning("[QvPenLoader] PickupContainer prefabにColliderが設定されていません");
+                }
+
+                if (currentPickupContainer.GetComponent<Rigidbody>() == null)
+                {
+                    Debug.LogWarning("[QvPenLoader] PickupContainer prefabにRigidbodyが設定されていません");
+                }
+
+                if (currentPickupContainer.GetComponent<VRCPickup>() == null)
+                {
+                    Debug.LogWarning("[QvPenLoader] PickupContainer prefabにVRCPickupが設定されていません");
+                }
+            }
+
+            // 全ストロークの平均中心位置を計算
+            Vector3 globalCenter = Vector3.zero;
+            int totalPoints = 0;
+
+            // 最初のパスで全ポイントの平均位置を計算
             for (int i = 0; i < exportedData.Count; i++)
             {
                 if (exportedData.TryGetValue(i, TokenType.DataDictionary, out DataToken drawingDataToken))
                 {
-                    CreateLineFromData(drawingDataToken.DataDictionary);
+                    DataDictionary drawingData = drawingDataToken.DataDictionary;
+                    if (drawingData.TryGetValue("positions", TokenType.DataList, out DataToken positionsToken))
+                    {
+                        DataList positionsList = positionsToken.DataList;
+                        int posCount = positionsList.Count;
+                        if (posCount % 3 == 0 && posCount >= 6)
+                        {
+                            int vertexCount = posCount / 3;
+                            for (int j = 0; j < vertexCount; j++)
+                            {
+                                Vector3 pos;
+                                if (TryGetPosition(positionsList, j * 3, out pos))
+                                {
+                                    globalCenter += pos;
+                                    totalPoints++;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 平均位置を計算
+            if (totalPoints > 0)
+            {
+                globalCenter /= totalPoints;
+            }
+
+            // 各描画データを処理
+            for (int i = 0; i < exportedData.Count; i++)
+            {
+                if (exportedData.TryGetValue(i, TokenType.DataDictionary, out DataToken drawingDataToken))
+                {
+                    if (usePickup)
+                    {
+                        // ピックアップモード：すべての線をピックアップコンテナの子にする
+                        CreateLineInContainer(drawingDataToken.DataDictionary, currentPickupContainer.transform, globalCenter);
+                    }
+                    else
+                    {
+                        // 通常モード：InkParent直下に線を生成
+                        CreateLineInContainer(drawingDataToken.DataDictionary, inkParent, Vector3.zero);
+                    }
                 }
                 else
                 {
                     Debug.LogWarning($"[QvPenLoader] 描画データ {i} の形式が不正です");
                 }
             }
+        
+            Debug.Log("[QvPenLoader] Successfully imported " + exportedCount + " drawing objects");
+            UpdateStatusUI("インポート成功！", Color.green);
         }
 
         /// <summary>
-        /// 描画データから線を生成する
+        /// 描画データから線を生成し、指定されたコンテナの子にする
         /// </summary>
-        private void CreateLineFromData(DataDictionary drawingData)
+        private void CreateLineInContainer(DataDictionary drawingData, Transform container, Vector3 globalCenter)
         {
             // カラー情報の取得と検証
             if (!drawingData.TryGetValue("color", TokenType.DataDictionary, out DataToken colorToken))
@@ -445,8 +564,53 @@ namespace QvPenExporter
             Vector3[] positions = ParsePositions(positionsToken.DataList);
             if (positions == null) return;
 
-            // 線の生成
-            CreateLine(positions, colors, isGradient, lineWidth);
+            // 位置調整
+            Vector3[] adjustedPositions;
+            
+            // ピックアップモードでグローバル中心がある場合とそれ以外で位置調整方法を変える
+            if (globalCenter != null && globalCenter != Vector3.zero)
+            {
+                // すべての線の中心を考慮して位置を調整（ピックアップモード）
+                adjustedPositions = new Vector3[positions.Length];
+                for (int i = 0; i < positions.Length; i++)
+                {
+                    adjustedPositions[i] = positions[i] - globalCenter;
+                }
+            }
+            else
+            {
+                // 通常モード：InkParentのワールド位置を考慮して位置を調整
+                adjustedPositions = new Vector3[positions.Length];
+                for (int i = 0; i < positions.Length; i++)
+                {
+                    adjustedPositions[i] = positions[i] - inkParent.position;
+                }
+            }
+
+            // LineRendererオブジェクトを生成
+            GameObject lineObj = CreateLineObject(lineWidth);
+            if (lineObj == null) return;
+            
+            // コンテナの子にする
+            lineObj.transform.SetParent(container, false);
+            lineObj.transform.localPosition = Vector3.zero;
+            lineObj.transform.localRotation = Quaternion.identity;
+
+            LineRenderer lineRenderer = lineObj.GetComponent<LineRenderer>();
+            if (lineRenderer == null)
+            {
+                Debug.LogError("[QvPenLoader] LineRendererコンポーネントが見つかりません");
+                Destroy(lineObj);
+                return;
+            }
+
+            // 線の基本設定
+            SetupLineRenderer(lineRenderer, adjustedPositions, lineWidth);
+
+            // カラー設定
+            ApplyLineColors(lineRenderer, colors, isGradient);
+
+            lineObj.layer = lineLayer;
         }
 
         /// <summary>
@@ -603,68 +767,6 @@ namespace QvPenExporter
         }
 
         /// <summary>
-        /// 線を生成する
-        /// </summary>
-        private void CreateLine(Vector3[] positions, Color[] colors, bool isGradient, float lineWidth)
-        {
-            if (!ValidateLineParameters(positions, colors)) return;
-
-            // InkParentのワールド位置を考慮して位置を調整
-            Vector3[] adjustedPositions = new Vector3[positions.Length];
-            for (int i = 0; i < positions.Length; i++)
-            {
-                // InkParentのワールド位置を相殺
-                adjustedPositions[i] = positions[i] - inkParent.position;
-            }
-
-            GameObject lineObj = CreateLineObject(lineWidth);
-            if (lineObj == null) return;
-
-            LineRenderer lineRenderer = lineObj.GetComponent<LineRenderer>();
-            if (lineRenderer == null)
-            {
-                Debug.LogError("[QvPenLoader] LineRendererコンポーネントが見つかりません");
-                Destroy(lineObj);
-                return;
-            }
-
-            // 線の基本設定（調整済みの位置を使用）
-            SetupLineRenderer(lineRenderer, adjustedPositions, lineWidth);
-
-            // カラー設定
-            ApplyLineColors(lineRenderer, colors, isGradient);
-
-            lineObj.layer = lineLayer;
-            Debug.Log($"[QvPenLoader] {positions.Length}点の線を生成しました（太さ: {lineWidth:F3}）");
-        }
-
-        /// <summary>
-        /// 線のパラメータを検証する
-        /// </summary>
-        private bool ValidateLineParameters(Vector3[] positions, Color[] colors)
-        {
-            if (positions == null || positions.Length < 2)
-            {
-                Debug.LogWarning("[QvPenLoader] 点が少なすぎます");
-                return false;
-            }
-
-            if (colors == null || colors.Length == 0)
-            {
-                Debug.LogWarning("[QvPenLoader] カラーデータが不正です");
-                return false;
-            }
-
-            if (lineRendererPrefab == null)
-            {
-                Debug.LogError("[QvPenLoader] LineRenderer prefabが設定されていません");
-                return false;
-            }
-
-            return true;
-        }
-
-        /// <summary>
         /// 線オブジェクトを生成する
         /// </summary>
         private GameObject CreateLineObject(float lineWidth)
@@ -677,7 +779,6 @@ namespace QvPenExporter
                 return null;
             }
 
-            lineObj.transform.SetParent(inkParent, false);
             lineObj.name = $"Line_Width{lineWidth:F3}";
             return lineObj;
         }
