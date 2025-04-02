@@ -1,5 +1,5 @@
 fileFormatVersion: 2
-guid: 1fa33cafe8a384a4c8137c0c7f585e9d
+guid: 58c78a4929ea943469316a59efb94134
 TextureImporter:
   internalIDToNameTable: []
   externalObjects: {}
@@ -34,7 +34,7 @@ TextureImporter:
   maxTextureSize: 2048
   textureSettings:
     serializedVersion: 2
-    filterMode: 2
+    filterMode: 1
     aniso: 1
     mipBias: 0
     wrapU: 1
@@ -110,13 +110,13 @@ TextureImporter:
     serializedVersion: 2
     sprites:
     - serializedVersion: 2
-      name: QvPenLoader_Info_0
+      name: QvPenExporter_Toggle_0
       rect:
         serializedVersion: 2
-        x: 10
-        y: 674
-        width: 1200
-        height: 1364
+        x: 0
+        y: 128
+        width: 128
+        height: 128
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -124,20 +124,20 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: 0
       bones: []
-      spriteID: c5ffb13987a8b2b4dbdc67c35b04934f
-      internalID: -1618588400
+      spriteID: b584e48368b8a424080130bb25893b6b
+      internalID: -970997549
       vertices: []
       indices: 
       edges: []
       weights: []
     - serializedVersion: 2
-      name: QvPenLoader_Info_1
+      name: QvPenExporter_Toggle_1
       rect:
         serializedVersion: 2
-        x: 1238
-        y: 1979
-        width: 156
-        height: 57
+        x: 23
+        y: 33
+        width: 81
+        height: 62
       alignment: 0
       pivot: {x: 0, y: 0}
       border: {x: 0, y: 0, z: 0, w: 0}
@@ -145,50 +145,8 @@ TextureImporter:
       physicsShape: []
       tessellationDetail: 0
       bones: []
-      spriteID: e3b761e968804144982d69b8c87769ac
-      internalID: -1717226343
-      vertices: []
-      indices: 
-      edges: []
-      weights: []
-    - serializedVersion: 2
-      name: QvPenLoader_Info_2
-      rect:
-        serializedVersion: 2
-        x: 1535
-        y: 1535
-        width: 513
-        height: 513
-      alignment: 0
-      pivot: {x: 0, y: 0}
-      border: {x: 0, y: 0, z: 0, w: 0}
-      outline: []
-      physicsShape: []
-      tessellationDetail: 0
-      bones: []
-      spriteID: 2ff7d1115f1164f4cad5a0a6750cce88
-      internalID: -807687996
-      vertices: []
-      indices: 
-      edges: []
-      weights: []
-    - serializedVersion: 2
-      name: QvPenLoader_Info_3
-      rect:
-        serializedVersion: 2
-        x: 1238
-        y: 1897
-        width: 270
-        height: 57
-      alignment: 0
-      pivot: {x: 0, y: 0}
-      border: {x: 0, y: 0, z: 0, w: 0}
-      outline: []
-      physicsShape: []
-      tessellationDetail: 0
-      bones: []
-      spriteID: 60c5d6cb8aba086438538e1e6b0cbffe
-      internalID: 1109383295
+      spriteID: dd0281a2237de3546b4da1dd9e09d012
+      internalID: 1194424460
       vertices: []
       indices: 
       edges: []
@@ -196,7 +154,7 @@ TextureImporter:
     outline: []
     physicsShape: []
     bones: []
-    spriteID: 065936780b745db499e458b3ae5a79e0
+    spriteID: eaa872d905ddeb5468b42cf1a5318483
     internalID: 0
     vertices: []
     indices: 
@@ -204,10 +162,8 @@ TextureImporter:
     weights: []
     secondaryTextures: []
     nameFileIdTable:
-      QvPenLoader_Info_0: -1618588400
-      QvPenLoader_Info_1: -1717226343
-      QvPenLoader_Info_2: -807687996
-      QvPenLoader_Info_3: 1109383295
+      QvPenExporter_Toggle_0: -970997549
+      QvPenExporter_Toggle_1: 1194424460
   mipmapLimitGroupName: 
   pSDRemoveMatte: 0
   userData: 

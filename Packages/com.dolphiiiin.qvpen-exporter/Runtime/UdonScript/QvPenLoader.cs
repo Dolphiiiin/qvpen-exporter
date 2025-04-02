@@ -24,6 +24,22 @@ namespace QvPenExporter
         [SerializeField]
         private Material defaultMaterial;
 
+        [Header("Pickup Settings")]
+        [SerializeField, Tooltip("ペンをピックアップ可能なオブジェクトとして生成するか")]
+        private Toggle pickupToggle;
+
+        [SerializeField, Tooltip("あらかじめシーンに配置されたピックアップオブジェクト（非アクティブ状態で配置してください）")]
+        private GameObject fixedPickupObject;
+
+        [SerializeField, Tooltip("ピックアップオブジェクト内の線を格納する親オブジェクト")]
+        private Transform pickupLineParent;
+        
+        [SerializeField, Tooltip("ピックアップオブジェクトのリセット位置")]
+        private Transform pickupResetPosition;
+        
+        [UdonSynced, Tooltip("ピックアップオブジェクトのアクティブ状態")]
+        private bool isPickupActive = false;
+
         [Header("Default Parameters")]
         [SerializeField, Tooltip("JSONでwidthが定義されていない場合のデフォルトの太さ")]
         private float defaultWidth = 0.005f;
@@ -38,6 +54,9 @@ namespace QvPenExporter
         [SerializeField]
         private Text statusText;
 
+        [SerializeField, Tooltip("スケール値を入力するInputField（0.1なら0.1倍にスケーリング）")]
+        private InputField scaleInputField;
+
         private float loadStartTime;
         private bool isLoading = false;
         private const float LOAD_TIMEOUT_SECONDS = 30.0f;
@@ -48,14 +67,27 @@ namespace QvPenExporter
         private VRCUrl syncedUrl;
 
         [UdonSynced]
-        private bool isImporting = false; // インポート中フラグ
-
-        [UdonSynced]
         private bool hasImportedInWorld = false; // ワールドでインポートされたことがあるかどうか
 
         private bool initialLoadExecuted = false; // 初期化時のロードが実行済みかどうか
 
         private VRCUrl lastLoadedUrl;
+
+        // Pickupオブジェクトの初期位置と回転を保存する変数
+        private Vector3 pickupInitialPosition;
+        private Quaternion pickupInitialRotation;
+        private bool hasInitialTransform = false;
+
+        [UdonSynced]
+        private float syncedScale = 1.0f; // デフォルトのスケール値は1.0
+
+        private float currentScale = 1.0f; // ローカルのスケール値（UIの表示用）
+
+        // サイズチェック関連の変数
+        private const float MAX_BOUNDING_SIZE = 5.0f; // バウンディングサイズの最大許容値（メートル）
+        private VRCUrl _sizeCheckUrl;   // 現在サイズチェック中のURL
+        private VRCUrl _approvedUrl;    // サイズが大きいが承認済みのURL
+        private bool _manuallyImported = false; // 手動でインポートが実行されたかどうか
 
         private void Start()
         {
@@ -82,17 +114,108 @@ namespace QvPenExporter
                 UpdateStatusUI("エラー: URL入力フィールドが見つかりません", Color.red);
                 return;
             }
+            
+            // ピックアップオブジェクトの検証
+            if (fixedPickupObject == null)
+            {
+                Debug.LogWarning("[QvPenLoader] Fixed pickup object is not assigned. Pickup mode will be disabled.");
+                if (pickupToggle != null)
+                {
+                    pickupToggle.isOn = false;
+                    pickupToggle.interactable = false;
+                }
+            }
+            else if (pickupLineParent == null)
+            {
+                // ピックアップオブジェクト内に線を格納する親がない場合は、ピックアップオブジェクト自体を親にする
+                pickupLineParent = fixedPickupObject.transform;
+                Debug.LogWarning("[QvPenLoader] Pickup line parent is not assigned. Using fixed pickup object as parent.");
+            }
+            
+            // リセット位置の検証
+            if (pickupResetPosition == null && fixedPickupObject != null)
+            {
+                Debug.LogWarning("[QvPenLoader] Pickup reset position is not assigned. Using pickup object's initial position.");
+                // リセット位置が指定されていない場合は、ピックアップオブジェクトの初期位置を記録
+                pickupInitialPosition = fixedPickupObject.transform.position;
+                pickupInitialRotation = fixedPickupObject.transform.rotation;
+                hasInitialTransform = true;
+            }
+            
+            // 初期状態ではピックアップオブジェクトを非アクティブにする
+            UpdatePickupObjectState(false);
 
             // 初期状態の設定
             isInitialized = true;
             UpdateStatusUI("準備完了", Color.white);
-            Debug.Log("[QvPenLoader] Initialized successfully");
+            Debug.Log("[QvPenLoader] Initialization completed successfully");
 
             // 既にワールドでインポートされている場合は初期ロードを実行
             if (hasImportedInWorld && !initialLoadExecuted && syncedUrl != null)
             {
                 initialLoadExecuted = true;
-                StartImport(syncedUrl);
+                // スケール値を適用するため、チェックする
+                if (scaleInputField != null)
+                {
+                    UpdateScaleFromInput();
+                }
+                ImportWithoutSizeCheck(syncedUrl); // すでにロードされているデータなのでサイズチェックはスキップ
+            }
+
+            // スケール入力フィールドの初期化
+            if (scaleInputField != null)
+            {
+                scaleInputField.text = "1.0"; // デフォルトのスケール値を明示的に設定
+                UpdateScaleFromInput();
+            }
+        }
+
+        // ピックアップオブジェクトのアクティブ状態を更新する
+        private void UpdatePickupObjectState(bool active)
+        {
+            if (fixedPickupObject != null)
+            {
+                isPickupActive = active;
+                
+                if (active)
+                {
+                    // アクティブ化する際に位置と回転をリセット
+                    if (pickupResetPosition != null)
+                    {
+                        // リセット位置が設定されている場合はそれを使用
+                        fixedPickupObject.transform.position = pickupResetPosition.position;
+                        fixedPickupObject.transform.rotation = pickupResetPosition.rotation;
+                    }
+                    else if (hasInitialTransform)
+                    {
+                        // リセット位置がない場合は保存された初期位置を使用
+                        fixedPickupObject.transform.position = pickupInitialPosition;
+                        fixedPickupObject.transform.rotation = pickupInitialRotation;
+                    }
+                }
+                
+                fixedPickupObject.SetActive(active);
+                
+                // 非アクティブ化する場合はピックアップ内のLineRendererを持つオブジェクトのみをクリア
+                if (!active && pickupLineParent != null)
+                {
+                    // 子オブジェクトを配列にコピー (foreachループ中にDestroyするとエラーになるため)
+                    Transform[] children = new Transform[pickupLineParent.childCount];
+                    for (int i = 0; i < pickupLineParent.childCount; i++)
+                    {
+                        children[i] = pickupLineParent.GetChild(i);
+                    }
+                    
+                    foreach (Transform child in children)
+                    {
+                        // LineRendererコンポーネントを持つオブジェクトのみ削除
+                        if (child.GetComponent<LineRenderer>() != null)
+                        {
+                            Destroy(child.gameObject);
+                            Debug.Log($"[QvPenLoader] Destroyed line object: {child.name}");
+                        }
+                    }
+                }
             }
         }
 
@@ -132,6 +255,9 @@ namespace QvPenExporter
                 Networking.SetOwner(Networking.LocalPlayer, gameObject);
             }
 
+            // 手動インポートフラグを設定
+            _manuallyImported = true;
+            
             // URLを同期用変数に設定
             syncedUrl = importUrl;
             lastLoadedUrl = importUrl;
@@ -168,28 +294,52 @@ namespace QvPenExporter
                 return;
             }
 
-            // 他のプレイヤーがインポート中の場合は待機
-            if (isImporting && !Networking.IsOwner(Networking.LocalPlayer, gameObject))
+            Debug.Log($"[QvPenLoader] Starting import for URL: {url.Get()}");
+            
+            // 初期ロード判定: ワールドに入った時の自動ロード（手動ではない場合のみ）
+            bool isInitialJoinLoad = hasImportedInWorld && initialLoadExecuted && !_manuallyImported;
+            
+            Debug.Log($"[QvPenLoader] Import state: hasImportedInWorld={hasImportedInWorld}, initialLoadExecuted={initialLoadExecuted}, _manuallyImported={_manuallyImported}, isInitialJoinLoad={isInitialJoinLoad}");
+            
+            // サイズチェックが必要かどうか判定
+            bool shouldSkipSizeCheck = isInitialJoinLoad || // 初期ロード時はスキップ
+                                (!_manuallyImported && hasImportedInWorld) || // 他のプレイヤーがロードしたものをロードする時はスキップ
+                                (_approvedUrl != null && !string.IsNullOrEmpty(_approvedUrl.Get()) && 
+                                 url.Get().Equals(_approvedUrl.Get())); // 承認済みURLの場合もスキップ
+            
+            if (shouldSkipSizeCheck)
             {
-                Debug.LogWarning("[QvPenLoader] Another player is importing");
-                UpdateStatusUI("他のプレイヤーがインポート中です", Color.yellow);
-                return;
+                // サイズチェックをスキップしてインポート実行
+                string reason = isInitialJoinLoad ? "Initial join load" :
+                              (!_manuallyImported && hasImportedInWorld) ? "Loading existing world data" :
+                              "Approved URL";
+                Debug.Log($"[QvPenLoader] Skipping size check: {reason}");
+                ImportWithoutSizeCheck(url);
             }
-
+            else
+            {
+                // 手動インポート時はサイズチェックを実行
+                Debug.Log($"[QvPenLoader] Running size check for manual import: {url.Get()}");
+                _sizeCheckUrl = url;
+                StartLoading();
+                
+                UpdateStatusUI("サイズチェック中...", Color.yellow);
+                VRCStringDownloader.LoadUrl(url, (IUdonEventReceiver)this);
+            }
+        }
+        
+        // サイズチェックなしでインポートする（初回読み込みか承認済みの場合）
+        private void ImportWithoutSizeCheck(VRCUrl url)
+        {
             // 既存のデータをクリア
             ClearExistingData();
-
+            
             // ローディング状態の設定
             StartLoading();
-
-            // オーナーがロード開始時は他のプレイヤーに通知
-            if (Networking.IsOwner(Networking.LocalPlayer, gameObject))
-            {
-                isImporting = true;
-                RequestSerialization();
-            }
-
-            Debug.Log($"[QvPenLoader] Starting load from URL: {url.Get()}");
+            
+            // 状態更新
+            UpdateStatusUI("読み込み中...", Color.yellow);
+            Debug.Log($"[QvPenLoader] Starting import without size check: {url.Get()}");
             VRCStringDownloader.LoadUrl(url, (IUdonEventReceiver)this);
         }
 
@@ -231,6 +381,35 @@ namespace QvPenExporter
             {
                 Destroy(child.gameObject);
             }
+            
+            // ピックアップオブジェクト内のLineRendererを持つオブジェクトのみをクリア
+            if (pickupLineParent != null)
+            {
+                // 子オブジェクトを配列にコピー (foreachループ中にDestroyするとエラーになるため)
+                Transform[] children = new Transform[pickupLineParent.childCount];
+                for (int i = 0; i < pickupLineParent.childCount; i++)
+                {
+                    children[i] = pickupLineParent.GetChild(i);
+                }
+                
+                foreach (Transform child in children)
+                {
+                    // LineRendererコンポーネントを持つオブジェクトのみ削除
+                    if (child.GetComponent<LineRenderer>() != null)
+                    {
+                        Destroy(child.gameObject);
+                        Debug.Log($"[QvPenLoader] Cleared line object from pickup: {child.name}");
+                    }
+                }
+            }
+            
+            // ピックアップオブジェクトを非アクティブ化（オーナーであれば同期する）
+            if (Networking.IsOwner(Networking.LocalPlayer, gameObject))
+            {
+                UpdatePickupObjectState(false);
+                RequestSerialization();
+            }
+            
             Debug.Log("[QvPenLoader] Cleared existing data before import");
         }
 
@@ -251,29 +430,100 @@ namespace QvPenExporter
             Debug.Log($"[QvPenLoader] StringLoad success after {loadTime:F2} seconds");
 
             string jsonData = result.Result;
-            if (!string.IsNullOrEmpty(jsonData))
-            {
-                ProcessImportData(jsonData);
-                UpdateStatusUI("インポート完了！", Color.green);
-
-                // 同期フラグを更新
-                isImporting = false;
-                if (Networking.IsOwner(Networking.LocalPlayer, gameObject))
-                {
-                    RequestSerialization();
-                }
-            }
-            else
+            if (string.IsNullOrEmpty(jsonData))
             {
                 Debug.LogError("[QvPenLoader] Received empty data");
                 UpdateStatusUI("エラー: データが空です", Color.red);
+                StopLoading();
+                return;
+            }
+
+            // サイズチェック中の場合
+            if (_sizeCheckUrl != null && !string.IsNullOrEmpty(_sizeCheckUrl.Get()))
+            {
+                ProcessSizeCheck(jsonData);
+                return;
+            }
+
+            // 通常のインポート処理
+            ProcessNormalImport(jsonData);
+        }
+
+        // サイズチェック処理を行う
+        private void ProcessSizeCheck(string jsonData)
+        {
+            VRCUrl urlToCheck = _sizeCheckUrl;
+            string urlString = urlToCheck.Get();
+            _sizeCheckUrl = null; // チェック状態をクリア
+            
+            Debug.Log($"[QvPenLoader] Size checking in progress for URL: {urlString}");
+            
+            // スケール値を確実に適用するため、チェック前に再度確認
+            if (scaleInputField != null)
+            {
+                Debug.Log($"[QvPenLoader] Scale input field text: {scaleInputField.text}");
+                UpdateScaleFromInput();
+            }
+            else
+            {
+                Debug.LogWarning("[QvPenLoader] scaleInputField is null");
+            }
+            
+            Debug.Log($"[QvPenLoader] Current scale value for size check: {currentScale}");
+            
+            // バウンディングサイズを計算
+            float boundingSize = CalculateBoundingSizeFromJson(jsonData);
+            Debug.Log($"[QvPenLoader] Size check result: {boundingSize:F2}m (Max allowed: {MAX_BOUNDING_SIZE:F2}m)");
+            
+            // サイズが大きい場合は警告を表示
+            if (boundingSize > MAX_BOUNDING_SIZE)
+            {
+                Debug.LogWarning($"[QvPenLoader] Large model detected: {boundingSize:F1}m bounding size exceeds limit of {MAX_BOUNDING_SIZE:F1}m");
+                UpdateStatusUI($"警告: 巨大なモデルを読み込もうとしています。承認するには再度読み込みます", Color.yellow);
                 
-                // エラー時はインポート状態をリセット
-                isImporting = false;
-                if (Networking.IsOwner(Networking.LocalPlayer, gameObject))
-                {
-                    RequestSerialization();
-                }
+                // 次回同じURLがロードされたらスキップするために保存
+                _approvedUrl = urlToCheck;
+                
+                Debug.Log($"[QvPenLoader] URL marked for confirmation: {urlString}");
+                
+                StopLoading();
+                return;
+            }
+            
+            // サイズが許容範囲内なら通常のインポートを実行
+            Debug.Log($"[QvPenLoader] Size check passed. Size {boundingSize:F2}m is within limit, proceeding with import");
+            
+            // サイズチェックの状態をリセット
+            StopLoading();
+            
+            // ClearExistingDataを実行してからインポートするように修正
+            ClearExistingData();
+            
+            // 通常の読み込み処理を開始
+            ImportWithoutSizeCheck(urlToCheck);
+        }
+
+        // 通常のインポート処理を行う
+        private void ProcessNormalImport(string jsonData)
+        {
+            Debug.Log("[QvPenLoader] Processing normal import data");
+            
+            // スケール値を確実に適用するため、読み込み前に再度確認
+            if (scaleInputField != null)
+            {
+                UpdateScaleFromInput();
+            }
+            
+            // エラー処理を含むデータのインポート
+            bool importSuccess = ProcessImportData(jsonData);
+            if (importSuccess)
+            {
+                UpdateStatusUI("インポート完了！", Color.green);
+            }
+            else
+            {
+                Debug.LogError("[QvPenLoader] Error occurred during import data processing");
+                UpdateStatusUI("エラー: データ処理中にエラーが発生しました", Color.red);
             }
 
             StopLoading();
@@ -286,22 +536,70 @@ namespace QvPenExporter
             
             UpdateStatusUI("エラー: 読み込みに失敗しました", Color.red);
 
-            // エラー時は他のプレイヤーがインポートできるようにフラグを解除
-            isImporting = false;
-            if (Networking.IsOwner(Networking.LocalPlayer, gameObject))
-            {
-                RequestSerialization();
-            }
             StopLoading();
         }
 
         public override void OnDeserialization()
         {
+            // ピックアップオブジェクトの状態を同期
+            if (fixedPickupObject != null)
+            {
+                // アクティブ状態を適用
+                if (fixedPickupObject.activeSelf != isPickupActive)
+                {
+                    if (isPickupActive)
+                    {
+                        // VRCPickupが使用中でない場合のみ位置と回転をリセット
+                        VRCPickup pickup = fixedPickupObject.GetComponent<VRCPickup>();
+                        if (pickup != null && !pickup.IsHeld)
+                        {
+                            if (pickupResetPosition != null)
+                            {
+                                fixedPickupObject.transform.position = pickupResetPosition.position;
+                                fixedPickupObject.transform.rotation = pickupResetPosition.rotation;
+                            }
+                            else if (hasInitialTransform)
+                            {
+                                fixedPickupObject.transform.position = pickupInitialPosition;
+                                fixedPickupObject.transform.rotation = pickupInitialRotation;
+                            }
+                        }
+                    }
+                    
+                    fixedPickupObject.SetActive(isPickupActive);
+                }
+                // アクティブ状態が同じ場合でも、VRCPickupが使用中でなければ位置を同期
+                else if (isPickupActive)
+                {
+                    VRCPickup pickup = fixedPickupObject.GetComponent<VRCPickup>();
+                    if (pickup != null && !pickup.IsHeld)
+                    {
+                        if (pickupResetPosition != null)
+                        {
+                            fixedPickupObject.transform.position = pickupResetPosition.position;
+                            fixedPickupObject.transform.rotation = pickupResetPosition.rotation;
+                        }
+                        else if (hasInitialTransform)
+                        {
+                            fixedPickupObject.transform.position = pickupInitialPosition;
+                            fixedPickupObject.transform.rotation = pickupInitialRotation;
+                        }
+                    }
+                }
+            }
+            
             // 初期化済みで、かつワールドでインポートされたことがあり、まだ初期ロードを実行していない場合のみロード
             if (isInitialized && hasImportedInWorld && !initialLoadExecuted && syncedUrl != null)
             {
                 initialLoadExecuted = true;
                 StartImport(syncedUrl);
+            }
+
+            // スケール値を同期
+            currentScale = syncedScale;
+            if (scaleInputField != null)
+            {
+                scaleInputField.text = syncedScale.ToString("F2");
             }
         }
 
@@ -317,12 +615,12 @@ namespace QvPenExporter
             }
         }
 
-        private void ProcessImportData(string data)
+        private bool ProcessImportData(string data)
         {
             if (string.IsNullOrEmpty(data))
             {
                 Debug.LogError("[QvPenLoader] Loaded data is empty");
-                return;
+                return false;
             }
 
             DataToken dataToken;
@@ -330,7 +628,7 @@ namespace QvPenExporter
             if (!success || dataToken.TokenType != TokenType.DataDictionary)
             {
                 Debug.LogError("[QvPenLoader] Failed to parse JSON data");
-                return;
+                return false;
             }
         
             DataDictionary jsonData = dataToken.DataDictionary;
@@ -338,7 +636,7 @@ namespace QvPenExporter
             if (!jsonData.TryGetValue("exportedData", TokenType.DataList, out DataToken exportedDataToken))
             {
                 Debug.LogError("JSON data does not contain exportedData array");
-                return;
+                return false;
             }
         
             DataList exportedData = exportedDataToken.DataList;
@@ -346,14 +644,15 @@ namespace QvPenExporter
         
             if (exportedCount == 0)
             {
-                Debug.LogWarning("No drawing data found in JSON");
-                return;
+                Debug.LogWarning("[QvPenLoader] No drawing data found in JSON");
+                return false;
             }
 
             DrawImportedData(data);
         
             Debug.Log("[QvPenLoader] Successfully imported " + exportedCount + " drawing objects");
             UpdateStatusUI("インポート成功！", Color.green);
+            return true;
         }
 
         /// <summary>
@@ -385,25 +684,97 @@ namespace QvPenExporter
                 return;
             }
 
-            // 各描画データを処理
             DataList exportedData = exportedDataToken.DataList;
+            int exportedCount = exportedData.Count;
+            
+            if (exportedCount == 0)
+            {
+                Debug.LogWarning("No drawing data found in JSON");
+                return;
+            }
+
+            // ピックアップモードかどうかを判定
+            bool usePickup = pickupToggle != null && pickupToggle.isOn && fixedPickupObject != null;
+
+            // 全ストロークの平均中心位置を計算（ピックアップモード用）
+            Vector3 globalCenter = Vector3.zero;
+            int totalPoints = 0;
+
+            // ピックアップモードの場合のみ平均位置を計算
+            if (usePickup)
+            {
+                // 最初のパスで全ポイントの平均位置を計算
+                for (int i = 0; i < exportedData.Count; i++)
+                {
+                    if (exportedData.TryGetValue(i, TokenType.DataDictionary, out DataToken drawingDataToken))
+                    {
+                        DataDictionary drawingData = drawingDataToken.DataDictionary;
+                        if (drawingData.TryGetValue("positions", TokenType.DataList, out DataToken positionsToken))
+                        {
+                            DataList positionsList = positionsToken.DataList;
+                            int posCount = positionsList.Count;
+                            if (posCount % 3 == 0 && posCount >= 6)
+                            {
+                                int vertexCount = posCount / 3;
+                                for (int j = 0; j < vertexCount; j++)
+                                {
+                                    Vector3 pos;
+                                    if (TryGetPosition(positionsList, j * 3, out pos))
+                                    {
+                                        globalCenter += pos;
+                                        totalPoints++;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 平均位置を計算
+                if (totalPoints > 0)
+                {
+                    globalCenter /= totalPoints;
+                }
+                
+                // ピックアップモードの場合、ピックアップオブジェクトをアクティブにする
+                // (UpdatePickupObjectState内で位置と回転がリセットされる)
+                UpdatePickupObjectState(true);
+                if (Networking.IsOwner(Networking.LocalPlayer, gameObject))
+                {
+                    RequestSerialization(); // オーナーの場合は状態を同期
+                }
+            }
+
+            // 各描画データを処理
             for (int i = 0; i < exportedData.Count; i++)
             {
                 if (exportedData.TryGetValue(i, TokenType.DataDictionary, out DataToken drawingDataToken))
                 {
-                    CreateLineFromData(drawingDataToken.DataDictionary);
+                    if (usePickup)
+                    {
+                        // ピックアップモード：線をピックアップオブジェクト内の親に生成
+                        CreateLineInContainer(drawingDataToken.DataDictionary, pickupLineParent, globalCenter);
+                    }
+                    else
+                    {
+                        // 通常モード：InkParent直下に線を生成
+                        CreateLineInContainer(drawingDataToken.DataDictionary, inkParent, Vector3.zero);
+                    }
                 }
                 else
                 {
                     Debug.LogWarning($"[QvPenLoader] 描画データ {i} の形式が不正です");
                 }
             }
+        
+            Debug.Log("[QvPenLoader] Successfully imported " + exportedCount + " drawing objects");
+            UpdateStatusUI("インポート成功！", Color.green);
         }
 
         /// <summary>
-        /// 描画データから線を生成する
+        /// 描画データから線を生成し、指定されたコンテナの子にする
         /// </summary>
-        private void CreateLineFromData(DataDictionary drawingData)
+        private void CreateLineInContainer(DataDictionary drawingData, Transform container, Vector3 globalCenter)
         {
             // カラー情報の取得と検証
             if (!drawingData.TryGetValue("color", TokenType.DataDictionary, out DataToken colorToken))
@@ -445,8 +816,60 @@ namespace QvPenExporter
             Vector3[] positions = ParsePositions(positionsToken.DataList);
             if (positions == null) return;
 
-            // 線の生成
-            CreateLine(positions, colors, isGradient, lineWidth);
+            // 位置調整（スケーリングを適用）
+            Vector3[] adjustedPositions;
+            
+            // ピックアップモードでグローバル中心がある場合とそれ以外で位置調整方法を変える
+            if (globalCenter != null && globalCenter != Vector3.zero)
+            {
+                // すべての線の中心を考慮して位置を調整（ピックアップモード）
+                adjustedPositions = new Vector3[positions.Length];
+                for (int i = 0; i < positions.Length; i++)
+                {
+                    // 中心位置からのオフセットにスケールを適用
+                    Vector3 offset = (positions[i] - globalCenter) * syncedScale;
+                    adjustedPositions[i] = globalCenter + offset - globalCenter;
+                }
+            }
+            else
+            {
+                // 通常モード：InkParentのワールド位置を考慮して位置を調整
+                adjustedPositions = new Vector3[positions.Length];
+                for (int i = 0; i < positions.Length; i++)
+                {
+                    // ローカル位置にスケールを適用
+                    Vector3 localPos = (positions[i] - inkParent.position) * syncedScale;
+                    adjustedPositions[i] = localPos;
+                }
+            }
+
+            // 線の太さにもスケールを適用
+            float scaledLineWidth = lineWidth * syncedScale;
+
+            // LineRendererオブジェクトを生成
+            GameObject lineObj = CreateLineObject(scaledLineWidth);
+            if (lineObj == null) return;
+            
+            // コンテナの子にする
+            lineObj.transform.SetParent(container, false);
+            lineObj.transform.localPosition = Vector3.zero;
+            lineObj.transform.localRotation = Quaternion.identity;
+
+            LineRenderer lineRenderer = lineObj.GetComponent<LineRenderer>();
+            if (lineRenderer == null)
+            {
+                Debug.LogError("[QvPenLoader] LineRendererコンポーネントが見つかりません");
+                Destroy(lineObj);
+                return;
+            }
+
+            // 線の基本設定（スケールされた太さを使用）
+            SetupLineRenderer(lineRenderer, adjustedPositions, scaledLineWidth);
+
+            // カラー設定
+            ApplyLineColors(lineRenderer, colors, isGradient);
+
+            lineObj.layer = lineLayer;
         }
 
         /// <summary>
@@ -459,13 +882,13 @@ namespace QvPenExporter
             {
                 if (!colorValues.TryGetValue(i, TokenType.String, out DataToken colorHexToken))
                 {
-                    Debug.LogError($"[QvPenLoader] カラー値 {i} の形式が不正です");
+                    Debug.LogError($"[QvPenLoader] Invalid color format at index {i}");
                     return null;
                 }
 
                 if (!TryParseHexColor(colorHexToken.String, out colors[i]))
                 {
-                    Debug.LogError($"[QvPenLoader] カラー値のパースに失敗: {colorHexToken.String}");
+                    Debug.LogError($"[QvPenLoader] Failed to parse color value: {colorHexToken.String}");
                     return null;
                 }
             }
@@ -489,7 +912,7 @@ namespace QvPenExporter
 
             if (lineWidth <= 0)
             {
-                Debug.LogWarning($"[QvPenLoader] 無効な線の太さ ({lineWidth})、デフォルト値を使用: {defaultWidth}");
+                Debug.LogWarning($"[QvPenLoader] Invalid line width ({lineWidth}), using default: {defaultWidth}");
                 lineWidth = defaultWidth;
             }
 
@@ -504,7 +927,7 @@ namespace QvPenExporter
             int posCount = positionsList.Count;
             if (posCount % 3 != 0 || posCount < 6)
             {
-                Debug.LogError("[QvPenLoader] 位置データが不正: 3の倍数でないか、点が少なすぎます");
+                Debug.LogError("[QvPenLoader] Invalid position data: not a multiple of 3 or too few points");
                 return null;
             }
 
@@ -603,68 +1026,6 @@ namespace QvPenExporter
         }
 
         /// <summary>
-        /// 線を生成する
-        /// </summary>
-        private void CreateLine(Vector3[] positions, Color[] colors, bool isGradient, float lineWidth)
-        {
-            if (!ValidateLineParameters(positions, colors)) return;
-
-            // InkParentのワールド位置を考慮して位置を調整
-            Vector3[] adjustedPositions = new Vector3[positions.Length];
-            for (int i = 0; i < positions.Length; i++)
-            {
-                // InkParentのワールド位置を相殺
-                adjustedPositions[i] = positions[i] - inkParent.position;
-            }
-
-            GameObject lineObj = CreateLineObject(lineWidth);
-            if (lineObj == null) return;
-
-            LineRenderer lineRenderer = lineObj.GetComponent<LineRenderer>();
-            if (lineRenderer == null)
-            {
-                Debug.LogError("[QvPenLoader] LineRendererコンポーネントが見つかりません");
-                Destroy(lineObj);
-                return;
-            }
-
-            // 線の基本設定（調整済みの位置を使用）
-            SetupLineRenderer(lineRenderer, adjustedPositions, lineWidth);
-
-            // カラー設定
-            ApplyLineColors(lineRenderer, colors, isGradient);
-
-            lineObj.layer = lineLayer;
-            Debug.Log($"[QvPenLoader] {positions.Length}点の線を生成しました（太さ: {lineWidth:F3}）");
-        }
-
-        /// <summary>
-        /// 線のパラメータを検証する
-        /// </summary>
-        private bool ValidateLineParameters(Vector3[] positions, Color[] colors)
-        {
-            if (positions == null || positions.Length < 2)
-            {
-                Debug.LogWarning("[QvPenLoader] 点が少なすぎます");
-                return false;
-            }
-
-            if (colors == null || colors.Length == 0)
-            {
-                Debug.LogWarning("[QvPenLoader] カラーデータが不正です");
-                return false;
-            }
-
-            if (lineRendererPrefab == null)
-            {
-                Debug.LogError("[QvPenLoader] LineRenderer prefabが設定されていません");
-                return false;
-            }
-
-            return true;
-        }
-
-        /// <summary>
         /// 線オブジェクトを生成する
         /// </summary>
         private GameObject CreateLineObject(float lineWidth)
@@ -677,7 +1038,6 @@ namespace QvPenExporter
                 return null;
             }
 
-            lineObj.transform.SetParent(inkParent, false);
             lineObj.name = $"Line_Width{lineWidth:F3}";
             return lineObj;
         }
@@ -755,6 +1115,18 @@ namespace QvPenExporter
             {
                 Destroy(child.gameObject);
             }
+            
+            // ピックアップオブジェクト内のデータもクリア
+            if (pickupLineParent != null)
+            {
+                foreach (Transform child in pickupLineParent)
+                {
+                    Destroy(child.gameObject);
+                }
+            }
+            
+            // ピックアップオブジェクトを非アクティブ化
+            UpdatePickupObjectState(false);
 
             syncedUrl = null;
             hasImportedInWorld = false;
@@ -821,14 +1193,343 @@ namespace QvPenExporter
         {
             if (lastLoadedUrl != null && !string.IsNullOrEmpty(lastLoadedUrl.Get()))
             {
-                Debug.Log("[QvPenLoader] Reloading last URL");
+                Debug.Log("[QvPenLoader] Attempting to reload previous URL");
                 LoadFromUrl(lastLoadedUrl);
             }
             else
             {
-                Debug.Log("[QvPenLoader] No previous URL to restore");
+                Debug.Log("[QvPenLoader] No previous URL found to restore");
                 UpdateStatusUI("復元するデータがありません", Color.yellow);
             }
+        }
+
+        // バウンディングサイズを計算する
+        private float CalculateBoundingSizeFromJson(string jsonData)
+        {
+            // JSONをパース
+            DataToken dataToken;
+            bool parseSuccess = VRCJson.TryDeserializeFromJson(jsonData, out dataToken);
+            
+            if (!parseSuccess)
+            {
+                Debug.LogError("[QvPenLoader] Failed to parse JSON data");
+                return 0f;
+            }
+            
+            if (dataToken.TokenType != TokenType.DataDictionary)
+            {
+                Debug.LogError($"[QvPenLoader] Invalid JSON root type: {dataToken.TokenType}");
+                return 0f;
+            }
+
+            DataDictionary jsonDataDict = dataToken.DataDictionary;
+            
+            // JSONの構造をログ出力
+            DataList keysList = jsonDataDict.GetKeys();
+            int keysCount = keysList.Count;
+            string[] keys = new string[keysCount];
+            for (int i = 0; i < keysCount; i++)
+            {
+                if (keysList.TryGetValue(i, TokenType.String, out DataToken keyToken))
+                {
+                    keys[i] = keyToken.String;
+                }
+            }
+            Debug.Log($"[QvPenLoader] JSON root keys: {string.Join(", ", keys)}");
+            
+            // 描画データの配列を取得
+            bool hasExportedData = jsonDataDict.TryGetValue("exportedData", TokenType.DataList, out DataToken exportedDataToken);
+            if (!hasExportedData)
+            {
+                Debug.LogError("[QvPenLoader] exportedData not found in JSON");
+                return 0f;
+            }
+
+            DataList exportedData = exportedDataToken.DataList;
+            int exportedCount = exportedData.Count;
+            
+            Debug.Log($"[QvPenLoader] Processing data for size check");
+            
+            if (exportedCount == 0)
+            {
+                Debug.LogWarning("[QvPenLoader] No drawing data found in JSON");
+                return 0f;
+            }
+
+            // すべての点の最小・最大座標を計算
+            Vector3 min = new Vector3(float.MaxValue, float.MaxValue, float.MaxValue);
+            Vector3 max = new Vector3(float.MinValue, float.MinValue, float.MinValue);
+            bool hasPoints = false;
+            int totalPointsProcessed = 0;
+
+            // 各描画データを解析
+            for (int i = 0; i < exportedData.Count; i++)
+            {
+                if (!exportedData.TryGetValue(i, TokenType.DataDictionary, out DataToken drawingDataToken))
+                {
+                    Debug.LogWarning($"[QvPenLoader] Drawing data at index {i} is not a dictionary");
+                    continue;
+                }
+                
+                DataDictionary drawingData = drawingDataToken.DataDictionary;
+                
+                // 位置データの取得試行
+                bool hasPositions = drawingData.TryGetValue("positions", TokenType.DataList, out DataToken positionsToken);
+                if (!hasPositions)
+                {
+                    Debug.LogWarning($"[QvPenLoader] Drawing data at index {i} has no positions");
+                    continue;
+                }
+                
+                DataList positionsList = positionsToken.DataList;
+                int posCount = positionsList.Count;
+                
+                // 位置データが正しいフォーマットかチェック
+                if (posCount < 3) // 少なくとも1点が必要
+                {
+                    Debug.LogWarning($"[QvPenLoader] Drawing data at index {i} has too few positions: {posCount}");
+                    continue;
+                }
+                
+                bool isXYZ = posCount % 3 == 0;
+                int pointCount = isXYZ ? posCount / 3 : posCount / 2; // XYZ or XY形式を想定
+                
+                Debug.Log($"[QvPenLoader] Drawing {i}: Format is {(isXYZ ? "XYZ" : "XY")}, points={pointCount}");
+                
+                if (pointCount < 1)
+                {
+                    Debug.LogWarning($"[QvPenLoader] Drawing {i} has no valid points");
+                    continue;
+                }
+                
+                int pointsInThisDrawing = 0;
+                
+                // 各点の処理
+                for (int j = 0; j < pointCount; j++)
+                {
+                    Vector3 pos = Vector3.zero; // 初期化を追加
+                    bool gotPosition = false;
+                    
+                    // XYZ形式
+                    if (isXYZ)
+                    {
+                        gotPosition = TryGetPosition(positionsList, j * 3, out pos);
+                    }
+                    // XY形式（Z=0と仮定）
+                    else if (posCount % 2 == 0)
+                    {
+                        float x = 0, y = 0;
+                        bool gotX = positionsList.TryGetValue(j * 2, TokenType.Float, out DataToken xToken) || 
+                                    positionsList.TryGetValue(j * 2, TokenType.Double, out xToken);
+                        bool gotY = positionsList.TryGetValue(j * 2 + 1, TokenType.Float, out DataToken yToken) || 
+                                    positionsList.TryGetValue(j * 2 + 1, TokenType.Double, out yToken);
+                        
+                        if (gotX && gotY)
+                        {
+                            x = xToken.TokenType == TokenType.Float ? xToken.Float : (float)xToken.Double;
+                            y = yToken.TokenType == TokenType.Float ? yToken.Float : (float)yToken.Double;
+                            pos = new Vector3(x, y, 0);
+                            gotPosition = true;
+                        }
+                    }
+                    
+                    if (!gotPosition)
+                    {
+                        continue;
+                    }
+                    
+                    // スケール値を考慮
+                    pos *= syncedScale;
+                    
+                    // 最小・最大値を更新
+                    min.x = Mathf.Min(min.x, pos.x);
+                    min.y = Mathf.Min(min.y, pos.y);
+                    min.z = Mathf.Min(min.z, pos.z);
+                    
+                    max.x = Mathf.Max(max.x, pos.x);
+                    max.y = Mathf.Max(max.y, pos.y);
+                    max.z = Mathf.Max(max.z, pos.z);
+                    
+                    hasPoints = true;
+                    pointsInThisDrawing++;
+                }
+                
+                totalPointsProcessed += pointsInThisDrawing;
+                Debug.Log($"[QvPenLoader] Drawing {i}: Processed {pointsInThisDrawing} points successfully");
+            }
+
+            Debug.Log($"[QvPenLoader] Total points processed: {totalPointsProcessed}");
+            
+            if (!hasPoints)
+            {
+                Debug.LogWarning("[QvPenLoader] No valid points found in the drawing data");
+                return 0f;
+            }
+
+            // バウンディングボックスの最大辺の長さを計算
+            Vector3 size = max - min;
+            float maxDimension = Mathf.Max(size.x, Mathf.Max(size.y, size.z));
+
+            // 詳細なログ出力
+            Debug.Log($"[QvPenLoader] Bounding box dimensions: min=({min.x:F2}, {min.y:F2}, {min.z:F2}), max=({max.x:F2}, {max.y:F2}, {max.z:F2})");
+            Debug.Log($"[QvPenLoader] Final size: {size.x:F2}m x {size.y:F2}m x {size.z:F2}m");
+            Debug.Log($"[QvPenLoader] Maximum dimension: {maxDimension:F2}m (Scale factor: {currentScale:F2})");
+            
+            if (maxDimension > MAX_BOUNDING_SIZE)
+            {
+                Debug.LogWarning($"[QvPenLoader] Size check failed: {maxDimension:F2}m exceeds limit of {MAX_BOUNDING_SIZE:F2}m");
+            }
+            else
+            {
+                Debug.Log($"[QvPenLoader] Size check passed: {maxDimension:F2}m is within limit of {MAX_BOUNDING_SIZE:F2}m");
+            }
+            
+            return maxDimension;
+        }
+
+        /// <summary>
+        /// すべての状態を強制的にリセットする
+        /// UI ボタンから呼び出されることを想定
+        /// </summary>
+        public void ResetEverything()
+        {
+            // オーナー権限を強制的に取得
+            if (!Networking.IsOwner(Networking.LocalPlayer, gameObject))
+            {
+                Networking.SetOwner(Networking.LocalPlayer, gameObject);
+            }
+
+            // ローディング状態をリセット
+            isLoading = false;
+            
+            // インクデータをクリア
+            foreach (Transform child in inkParent)
+            {
+                Destroy(child.gameObject);
+            }
+            
+            // ピックアップオブジェクト内のデータもクリア
+            if (pickupLineParent != null)
+            {
+                foreach (Transform child in pickupLineParent)
+                {
+                    Destroy(child.gameObject);
+                }
+            }
+            
+            // ピックアップオブジェクトを非アクティブ化して位置をリセット
+            UpdatePickupObjectState(false);
+            
+            // 同期変数をリセット
+            syncedUrl = null;
+            hasImportedInWorld = false;
+            lastLoadedUrl = null;
+            initialLoadExecuted = false;
+            
+            // 状態を全プレイヤーに同期
+            RequestSerialization();
+            
+            // UI表示を更新
+            UpdateStatusUI("すべてのデータをリセットしました", Color.cyan);
+            
+            // 全プレイヤーにリセット通知を送信
+            SendCustomNetworkEvent(NetworkEventTarget.All, nameof(OnResetEventReceived));
+        }
+
+        /// <summary>
+        /// リセットイベントを受信した時の処理
+        /// </summary>
+        public void OnResetEventReceived()
+        {
+            // ローディング状態をリセット
+            StopLoading();
+            
+            // ローカルUI更新
+            UpdateStatusUI("データがリセットされました", Color.cyan);
+        }
+
+        /// <summary>
+        /// InputFieldからスケール値を取得する
+        /// </summary>
+        public void UpdateScaleFromInput()
+        {
+            if (scaleInputField == null)
+            {
+                Debug.LogWarning("[QvPenLoader] Scale input field is null");
+                return;
+            }
+            
+            float scale;
+            bool parseSuccess = float.TryParse(scaleInputField.text, out scale);
+            
+            if (parseSuccess && scale > 0)
+            {
+                float oldScale = currentScale;
+                currentScale = scale;
+
+                // オーナー権限を取得して同期変数を更新
+                if (!Networking.IsOwner(Networking.LocalPlayer, gameObject))
+                {
+                    Networking.SetOwner(Networking.LocalPlayer, gameObject);
+                }
+                syncedScale = scale;
+                RequestSerialization();
+
+                Debug.Log($"[QvPenLoader] Scale updated and synced from {oldScale:F2} to {currentScale:F2}");
+                
+                // スケールが変わった場合、前回のサイズチェック結果をクリア
+                if (Mathf.Abs(oldScale - currentScale) > 0.001f)
+                {
+                    Debug.Log($"[QvPenLoader] Scale changed significantly, clearing previous size check results");
+                    _approvedUrl = null;
+                    
+                    // スケール変更をUIで明示
+                    UpdateStatusUI($"スケール: {currentScale:F2}に変更しました。次回インポート時にサイズをチェックします", Color.cyan);
+                }
+            }
+            else
+            {
+                // 変換できない値や負の値が入力された場合はデフォルト値に戻す
+                Debug.LogWarning($"[QvPenLoader] Invalid scale value: '{scaleInputField.text}', resetting to 1.0");
+                currentScale = 1.0f;
+                
+                // オーナー権限を取得して同期変数を更新
+                if (!Networking.IsOwner(Networking.LocalPlayer, gameObject))
+                {
+                    Networking.SetOwner(Networking.LocalPlayer, gameObject);
+                }
+                syncedScale = 1.0f;
+                RequestSerialization();
+                
+                scaleInputField.text = "1.0";
+                
+                // 無効な値が入力されたことをUIで表示
+                UpdateStatusUI("無効なスケール値です。1.0にリセットしました", Color.yellow);
+                
+                // サイズチェック結果をリセット
+                _approvedUrl = null;
+            }
+        }
+
+        private void DebugLog(string message)
+        {
+#if UNITY_EDITOR
+            Debug.Log(message);
+#endif
+        }
+
+        private void DebugLogWarning(string message)
+        {
+#if UNITY_EDITOR
+            Debug.LogWarning(message);
+#endif
+        }
+
+        private void DebugLogError(string message)
+        {
+#if UNITY_EDITOR
+            Debug.LogError(message);
+#endif
         }
     }
 }
