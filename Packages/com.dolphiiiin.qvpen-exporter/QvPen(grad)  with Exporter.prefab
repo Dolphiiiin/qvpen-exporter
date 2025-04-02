@@ -997,6 +997,7 @@ MonoBehaviour:
   - {fileID: 5942696434132381296}
   - {fileID: 5942696432888707298}
   - {fileID: 5942696433642350924}
+  defaultPenWidth: 0.005
 --- !u!114 &6115745666901472119
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1744,6 +1745,74 @@ PrefabInstance:
       propertyPath: m_Name
       value: Exporter
       objectReference: {fileID: 0}
+    - target: {fileID: 8082773538343495521, guid: 4283ff810ac32b4409f5cd3063670bfe, type: 3}
+      propertyPath: inkPools.Array.size
+      value: 15
+      objectReference: {fileID: 0}
+    - target: {fileID: 8082773538343495521, guid: 4283ff810ac32b4409f5cd3063670bfe, type: 3}
+      propertyPath: inkPools.Array.data[0]
+      value: 
+      objectReference: {fileID: 5775250938074410156}
+    - target: {fileID: 8082773538343495521, guid: 4283ff810ac32b4409f5cd3063670bfe, type: 3}
+      propertyPath: inkPools.Array.data[1]
+      value: 
+      objectReference: {fileID: 5942696432889033616}
+    - target: {fileID: 8082773538343495521, guid: 4283ff810ac32b4409f5cd3063670bfe, type: 3}
+      propertyPath: inkPools.Array.data[2]
+      value: 
+      objectReference: {fileID: 5942696434066760005}
+    - target: {fileID: 8082773538343495521, guid: 4283ff810ac32b4409f5cd3063670bfe, type: 3}
+      propertyPath: inkPools.Array.data[3]
+      value: 
+      objectReference: {fileID: 5942696433245738066}
+    - target: {fileID: 8082773538343495521, guid: 4283ff810ac32b4409f5cd3063670bfe, type: 3}
+      propertyPath: inkPools.Array.data[4]
+      value: 
+      objectReference: {fileID: 5942696434057571872}
+    - target: {fileID: 8082773538343495521, guid: 4283ff810ac32b4409f5cd3063670bfe, type: 3}
+      propertyPath: inkPools.Array.data[5]
+      value: 
+      objectReference: {fileID: 5942696433358857217}
+    - target: {fileID: 8082773538343495521, guid: 4283ff810ac32b4409f5cd3063670bfe, type: 3}
+      propertyPath: inkPools.Array.data[6]
+      value: 
+      objectReference: {fileID: 5942696433928078477}
+    - target: {fileID: 8082773538343495521, guid: 4283ff810ac32b4409f5cd3063670bfe, type: 3}
+      propertyPath: inkPools.Array.data[7]
+      value: 
+      objectReference: {fileID: 5942696434799677028}
+    - target: {fileID: 8082773538343495521, guid: 4283ff810ac32b4409f5cd3063670bfe, type: 3}
+      propertyPath: inkPools.Array.data[8]
+      value: 
+      objectReference: {fileID: 5942696434984886572}
+    - target: {fileID: 8082773538343495521, guid: 4283ff810ac32b4409f5cd3063670bfe, type: 3}
+      propertyPath: inkPools.Array.data[9]
+      value: 
+      objectReference: {fileID: 5942696433536221063}
+    - target: {fileID: 8082773538343495521, guid: 4283ff810ac32b4409f5cd3063670bfe, type: 3}
+      propertyPath: inkPools.Array.data[10]
+      value: 
+      objectReference: {fileID: 5942696433416970127}
+    - target: {fileID: 8082773538343495521, guid: 4283ff810ac32b4409f5cd3063670bfe, type: 3}
+      propertyPath: inkPools.Array.data[11]
+      value: 
+      objectReference: {fileID: 5942696433138358379}
+    - target: {fileID: 8082773538343495521, guid: 4283ff810ac32b4409f5cd3063670bfe, type: 3}
+      propertyPath: inkPools.Array.data[12]
+      value: 
+      objectReference: {fileID: 5942696434132381296}
+    - target: {fileID: 8082773538343495521, guid: 4283ff810ac32b4409f5cd3063670bfe, type: 3}
+      propertyPath: inkPools.Array.data[13]
+      value: 
+      objectReference: {fileID: 5942696432888707298}
+    - target: {fileID: 8082773538343495521, guid: 4283ff810ac32b4409f5cd3063670bfe, type: 3}
+      propertyPath: inkPools.Array.data[14]
+      value: 
+      objectReference: {fileID: 5942696433642350924}
+    - target: {fileID: 8082773538343495521, guid: 4283ff810ac32b4409f5cd3063670bfe, type: 3}
+      propertyPath: serializationData.Prefab
+      value: 
+      objectReference: {fileID: 8082773538343495521, guid: 4283ff810ac32b4409f5cd3063670bfe, type: 3}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
